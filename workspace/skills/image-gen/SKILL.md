@@ -1,3 +1,15 @@
+---
+name: image-gen
+description: >
+  Generate and edit images using Google Gemini's multimodal image generation.
+  Use for: product photography (hero shots, catalog images), lifestyle scenes,
+  social media content, background removal, image editing/refinement, and any
+  image generation or transformation task. Supports iterative multi-turn editing,
+  structured specs for precise creative direction, and multiple reference images.
+  Use when the user mentions generating images, product photos, editing photos,
+  creating visuals, or any image creation task.
+---
+
 # Image Generation Skill
 
 Generate and edit images using Google Gemini's multimodal image generation.

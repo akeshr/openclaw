@@ -10,7 +10,7 @@
 
 ## Active Projects
 - **AutifyME** → Pivoting to OpenClaw-native skills (was LangChain/LangGraph)
-  - Repo: `D:\openclaw\workspace\AutifyME` (github: akeshr/AutifyME, branch: specialist-build-up-v11)
+  - Repo: `D:\openclaw` (github: openclaw/openclaw) — THIS is the working repo, NOT AutifyME
   - Master doc: `AutifyME/docs/REDESIGN_MASTER_DOCUMENT.md`
   - Whitepaper: `AutifyME/docs/whitepaper.md` (14 workflow domains, Agentic Business OS vision)
   - Backend: Supabase (project: badupjrwhiucpvnuwluc)
