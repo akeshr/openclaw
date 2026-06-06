@@ -140,7 +140,7 @@ describe("codex plugin", () => {
     expect(unsupported.supported).toBe(false);
   });
 
-  it("enables the native hook relay for public Codex app-server attempts", async () => {
+  it("disables the native hook relay for public Codex app-server attempts", async () => {
     const harness = createCodexAppServerAgentHarness({ pluginConfig: { appServer: {} } });
     const result = { success: true };
     runCodexAppServerAttemptMock.mockResolvedValueOnce(result);
@@ -151,7 +151,7 @@ describe("codex plugin", () => {
       { prompt: "hello" },
       {
         pluginConfig: { appServer: {} },
-        nativeHookRelay: { enabled: true },
+        nativeHookRelay: { enabled: false },
       },
     );
   });
@@ -209,12 +209,12 @@ describe("codex plugin", () => {
       { prompt: "calendar" },
       {
         pluginConfig: liveConfig.plugins.entries.codex.config,
-        nativeHookRelay: { enabled: true },
+        nativeHookRelay: { enabled: false },
       },
     );
   });
 
-  it("enables the native hook relay for public Codex side questions", async () => {
+  it("disables the native hook relay for public Codex side questions", async () => {
     const harness = createCodexAppServerAgentHarness({ pluginConfig: { appServer: {} } });
     const runSideQuestion = harness["runSideQuestion"];
     const result = { text: "ok" };
@@ -229,7 +229,7 @@ describe("codex plugin", () => {
       { question: "btw" },
       {
         pluginConfig: { appServer: {} },
-        nativeHookRelay: { enabled: true },
+        nativeHookRelay: { enabled: false },
       },
     );
   });
