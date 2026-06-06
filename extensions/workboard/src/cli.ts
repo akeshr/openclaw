@@ -86,7 +86,7 @@ async function callWorkboardGateway(
 ): Promise<unknown> {
   return await callGatewayFromCli(method, options, params, {
     mode: "cli",
-    scopes: ["operator.write", "operator.read"],
+    scopes: ["operator.admin", "operator.write", "operator.read"],
   });
 }
 

@@ -105,6 +105,27 @@ describe("registerWorkboardCli", () => {
     expect(showOutput).toContain("[redacted]");
   });
 
+  it("requests admin scope for gateway dispatch because dispatch starts subagents", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const program = createProgram(store);
+    gatewayRuntime.callGatewayFromCli.mockResolvedValueOnce({
+      started: [],
+      startFailures: [],
+    });
+
+    await program.parseAsync(["workboard", "dispatch", "--json"], { from: "user" });
+
+    expect(gatewayRuntime.callGatewayFromCli).toHaveBeenCalledWith(
+      "workboard.cards.dispatch",
+      expect.objectContaining({ json: true }),
+      {},
+      expect.objectContaining({
+        mode: "cli",
+        scopes: ["operator.admin", "operator.write", "operator.read"],
+      }),
+    );
+  });
+
   it("does not fall back to local dispatch for explicit gateway targets", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Remote target", status: "ready" });

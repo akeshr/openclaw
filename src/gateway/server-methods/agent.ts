@@ -1064,6 +1064,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       sourceReplyDeliveryMode?: "automatic" | "message_tool_only";
       disableMessageTool?: boolean;
       timeout?: number;
+      toolsAllow?: string[];
       bestEffortDeliver?: boolean;
       cleanupBundleMcpOnRunEnd?: boolean;
       label?: string;
@@ -2404,6 +2405,7 @@ export const agentHandlers: GatewayRequestHandlers = {
               groupSpace: resolvedGroupSpace,
               spawnedBy: spawnedByValue,
               timeout: request.timeout?.toString(),
+              toolsAllow: request.toolsAllow,
               bestEffortDeliver,
               messageChannel: originMessageChannel,
               runId,

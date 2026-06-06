@@ -152,6 +152,19 @@ function resolveSkillReadRoots(skillsSnapshot?: SkillSnapshot): string[] | undef
   return Array.from(roots);
 }
 
+function resolveRuntimeToolPolicyAlsoAllow(runtimeToolAllowlist?: string[]): string[] {
+  // Runtime allowlists are a per-run capability request. Only concrete tool
+  // names widen profile/subagent allow filters; wildcards/groups stay final
+  // filters so configured policy is not bypassed broadly.
+  return [
+    ...new Set(
+      (runtimeToolAllowlist ?? [])
+        .map((entry) => normalizeToolName(entry))
+        .filter((entry) => entry && entry !== "*" && !entry.startsWith("group:")),
+    ),
+  ];
+}
+
 type BashToolsModule = typeof import("./bash-tools.js");
 
 const bashToolsModuleLoader = createLazyImportLoader<BashToolsModule>(
@@ -602,6 +615,9 @@ export function createOpenClawCodingTools(options?: {
     const normalized = normalizeToolName(toolName);
     return normalized === "*" || normalized === "message";
   });
+  const runtimeToolPolicyAlsoAllow = resolveRuntimeToolPolicyAlsoAllow(
+    options?.runtimeToolAllowlist,
+  );
   const localModelLeanPreserveToolNames = resolveLocalModelLeanPreserveToolNames({
     toolNames: options?.runtimeToolAllowlist,
     forceMessageTool: options?.forceMessageTool,
@@ -614,6 +630,7 @@ export function createOpenClawCodingTools(options?: {
     ...(runtimeToolAllowlistIncludesMessage ? ["message"] : []),
     ...(forceHeartbeatTool ? [HEARTBEAT_RESPONSE_TOOL_NAME] : []),
     ...toolSearchControlAllowlist,
+    ...runtimeToolPolicyAlsoAllow,
   ];
   const profilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(profilePolicy, [
     ...(profileAlsoAllow ?? []),
@@ -651,6 +668,10 @@ export function createOpenClawCodingTools(options?: {
       store: subagentStore,
     },
   );
+  const subagentPolicyWithRuntimeToolAllowlist =
+    subagentPolicy?.allow && runtimeToolPolicyAlsoAllow.length > 0
+      ? mergeAlsoAllowPolicy(subagentPolicy, runtimeToolPolicyAlsoAllow)
+      : subagentPolicy;
   const globalPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(globalPolicy);
   const globalProviderPolicyWithToolSearchControls =
     mergeToolSearchControlAllowlist(globalProviderPolicy);
@@ -661,7 +682,9 @@ export function createOpenClawCodingTools(options?: {
   const senderPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(senderPolicy);
   const sandboxToolPolicyWithToolSearchControls =
     mergeToolSearchControlAllowlist(sandboxToolPolicy);
-  const subagentPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(subagentPolicy);
+  const subagentPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(
+    subagentPolicyWithRuntimeToolAllowlist,
+  );
   const allowBackground = isToolAllowedByPolicies("process", [
     profilePolicyWithAlsoAllow,
     providerProfilePolicyWithAlsoAllow,

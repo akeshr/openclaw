@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { resetPluginRuntimeStateForTest } from "openclaw/plugin-sdk/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addSandboxShellDynamicToolsIfAvailable,
@@ -123,6 +124,7 @@ describe("Codex app-server dynamic tool build", () => {
 
   afterEach(async () => {
     resetOpenClawCodingToolsFactoryForTests();
+    resetPluginRuntimeStateForTest();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -668,6 +670,41 @@ describe("Codex app-server dynamic tool build", () => {
         (tool) => tool.name,
       ),
     ).toEqual(["exec", "sandbox_exec", "sandbox_process", "apply_patch", "read"]);
+  });
+
+  it("materializes real Workboard lifecycle tools for restricted dispatched worker allowlists", async () => {
+    vi.stubEnv("OPENCLAW_STATE_DIR", path.join(tempDir, "state"));
+    vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", path.join(process.cwd(), "extensions"));
+    vi.stubEnv("OPENCLAW_DISABLE_BUNDLED_PLUGINS", "");
+    resetPluginRuntimeStateForTest();
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = process.cwd();
+    const params = createParams(sessionFile, workspaceDir);
+    params.disableTools = false;
+    params.config = {
+      plugins: { enabled: true },
+      tools: { subagents: { tools: { allow: ["read"] } } },
+    } as never;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    params.sessionKey = "agent:marshal:subagent:workboard-board-card-1";
+    params.allowGatewaySubagentBinding = true;
+    params.toolsAllow = [
+      "workboard_read",
+      "workboard_heartbeat",
+      "workboard_complete",
+      "workboard_block",
+      "workboard_proof",
+    ];
+    const tools = await buildDynamicToolsForTest(params, workspaceDir, { sandbox: null as never });
+
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "workboard_read",
+      "workboard_heartbeat",
+      "workboard_proof",
+      "workboard_complete",
+      "workboard_block",
+    ]);
+    expect(tools.every((tool) => typeof tool.execute === "function")).toBe(true);
   });
 
   it("treats an explicit empty Codex dynamic toolsAllow as no tools", () => {

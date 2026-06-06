@@ -220,6 +220,141 @@ describe("WorkboardStore", () => {
     });
   });
 
+  it("blocks Workboard subagent model success when required lifecycle tools were not called", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Natural model success",
+      status: "running",
+      sessionKey: "agent:main:subagent:workboard-default-card-1",
+      runId: "run-success",
+      execution: {
+        id: "exec-1",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "default",
+        sessionKey: "agent:main:subagent:workboard-default-card-1",
+        runId: "run-success",
+        startedAt: 10,
+        updatedAt: 10,
+      },
+    });
+
+    const reconciled = await store.reconcileSubagentEnded({
+      targetSessionKey: "agent:main:subagent:workboard-default-card-1",
+      runId: "run-success",
+      outcome: "ok",
+      reason: "subagent-complete",
+      endedAt: 20,
+    });
+    const duplicate = await store.reconcileSubagentEnded({
+      targetSessionKey: "agent:main:subagent:workboard-default-card-1",
+      runId: "run-success",
+      outcome: "ok",
+      reason: "subagent-complete",
+      endedAt: 30,
+    });
+
+    expect(reconciled).toMatchObject({
+      id: card.id,
+      status: "blocked",
+      execution: { status: "blocked" },
+      metadata: {
+        attempts: [
+          expect.objectContaining({
+            status: "blocked",
+            endedAt: 20,
+            error: "Worker exited without calling workboard_complete or workboard_block.",
+          }),
+        ],
+        workerProtocol: {
+          state: "violated",
+          updatedAt: 20,
+          detail: "Worker exited without calling workboard_complete or workboard_block.",
+        },
+        workerLogs: [expect.objectContaining({ level: "error", runId: "run-success" })],
+      },
+    });
+    expect(reconciled?.metadata?.claim).toBeUndefined();
+    expect(duplicate?.metadata?.workerLogs).toHaveLength(1);
+  });
+
+  it("reconciles Workboard subagent terminal failures to blocked", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Terminal failure",
+      status: "running",
+      sessionKey: "agent:main:subagent:workboard-default-card-2",
+      runId: "run-fail",
+      execution: {
+        id: "exec-1",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "default",
+        sessionKey: "agent:main:subagent:workboard-default-card-2",
+        runId: "run-fail",
+        startedAt: 10,
+        updatedAt: 10,
+      },
+    });
+
+    await expect(
+      store.reconcileSubagentEnded({
+        targetSessionKey: "agent:main:subagent:workboard-default-card-2",
+        runId: "run-fail",
+        outcome: "timeout",
+        reason: "timeout",
+        endedAt: 20,
+      }),
+    ).resolves.toMatchObject({
+      id: card.id,
+      status: "blocked",
+      execution: { status: "blocked" },
+      metadata: {
+        attempts: [expect.objectContaining({ status: "blocked", error: "timeout" })],
+        workerLogs: [expect.objectContaining({ level: "error", runId: "run-fail" })],
+      },
+    });
+  });
+
+  it("does not let late terminal events overwrite manual review or terminal states", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Manual review",
+      status: "review",
+      sessionKey: "agent:main:subagent:workboard-default-card-3",
+      runId: "run-late",
+      execution: {
+        id: "exec-1",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "default",
+        sessionKey: "agent:main:subagent:workboard-default-card-3",
+        runId: "run-late",
+        startedAt: 10,
+        updatedAt: 10,
+      },
+    });
+
+    await store.reconcileSubagentEnded({
+      targetSessionKey: "agent:main:subagent:workboard-default-card-3",
+      runId: "run-late",
+      outcome: "error",
+      reason: "error",
+      endedAt: 20,
+    });
+
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      status: "review",
+      execution: { status: "running" },
+    });
+  });
+
   it("ignores dependency links from generic metadata writes", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const parent = await store.create({ title: "Parent" });
@@ -1356,6 +1491,47 @@ describe("WorkboardStore", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("blocks stale running cards during dispatch with audit evidence", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Stale worker",
+      status: "running",
+      sessionKey: "agent:main:subagent:workboard-default-stale",
+      runId: "run-stale",
+      execution: {
+        id: "exec-stale",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "default",
+        sessionKey: "agent:main:subagent:workboard-default-stale",
+        runId: "run-stale",
+        startedAt: 1_000,
+        updatedAt: 1_000,
+      },
+    });
+
+    const result = await store.dispatch(25 * 60 * 1000);
+
+    expect(result.blocked).toEqual([expect.objectContaining({ id: card.id })]);
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      status: "blocked",
+      execution: { status: "blocked" },
+      metadata: {
+        workerLogs: [
+          expect.objectContaining({
+            message: "Running card heartbeat went stale.",
+            runId: "run-stale",
+          }),
+        ],
+        notifications: expect.arrayContaining([
+          expect.objectContaining({ message: "Running card heartbeat went stale." }),
+        ]),
+      },
+    });
   });
 
   it("lets in-flight retries finish before enforcing the retry budget", async () => {

@@ -6,6 +6,7 @@ import {
 import { compileGlobPatterns, matchesAnyGlobPattern } from "../agents/glob-pattern.js";
 import { DEFAULT_PLUGIN_TOOLS_ALLOWLIST_ENTRY, normalizeToolName } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getLoadedRuntimePluginRegistry } from "./active-runtime-registry.js";
 import { applyTestPluginDefaults, normalizePluginsConfig } from "./config-state.js";
@@ -669,8 +670,13 @@ function createCachedDescriptorPluginTool(params: {
     description: descriptor.description,
     parameters: descriptor.inputSchema as never,
     async execute(toolCallId, executeParams, signal, onUpdate) {
+      const toolDiscoveryConfig = buildToolDiscoveryActivationSourceConfig({
+        config: params.loadContext.config,
+        pluginIds: [pluginId],
+      });
       const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
         activate: false,
+        ...(toolDiscoveryConfig ? { config: toolDiscoveryConfig } : {}),
         toolDiscovery: true,
         onlyPluginIds: [pluginId],
         ...(params.runtimeOptions ? { runtimeOptions: params.runtimeOptions } : {}),
@@ -985,13 +991,38 @@ function resolvePluginToolLoadState(params: {
     hasAuthForProvider: params.hasAuthForProvider,
     snapshot,
   });
+  const toolDiscoveryConfig = buildToolDiscoveryActivationSourceConfig({
+    config: context.config,
+    pluginIds: onlyPluginIds,
+  });
   const loadOptions = buildPluginRuntimeLoadOptions(context, {
     activate: false,
+    ...(toolDiscoveryConfig ? { config: toolDiscoveryConfig } : {}),
     toolDiscovery: true,
     onlyPluginIds,
     runtimeOptions,
   });
   return { context, env, loadOptions, onlyPluginIds, runtimeOptions, snapshot };
+}
+
+function buildToolDiscoveryActivationSourceConfig(params: {
+  config: OpenClawConfig;
+  pluginIds: readonly string[];
+}): OpenClawConfig | undefined {
+  if (params.pluginIds.length === 0) {
+    return undefined;
+  }
+  const entries = { ...(params.config.plugins?.entries ?? {}) };
+  for (const pluginId of params.pluginIds) {
+    entries[pluginId] = { ...entries[pluginId], enabled: true };
+  }
+  return {
+    ...params.config,
+    plugins: {
+      ...params.config.plugins,
+      entries,
+    },
+  };
 }
 
 export function ensureStandalonePluginToolRegistryLoaded(params: {
@@ -1029,7 +1060,14 @@ export function resolvePluginTools(params: {
   if (!loadState) {
     return [];
   }
-  const { context, env, onlyPluginIds, runtimeOptions, snapshot } = loadState;
+  const {
+    context,
+    env,
+    loadOptions: selectedPluginLoadOptions,
+    onlyPluginIds,
+    runtimeOptions,
+    snapshot,
+  } = loadState;
   const tools: AnyAgentTool[] = [];
   const existing = params.existingToolNames ?? new Set<string>();
   const existingNormalized = new Set(Array.from(existing, (tool) => normalizeToolName(tool)));
@@ -1069,12 +1107,10 @@ export function resolvePluginTools(params: {
   if (runtimePluginIds.length === 0) {
     return tools;
   }
-  const loadOptions = buildPluginRuntimeLoadOptions(context, {
-    activate: false,
-    toolDiscovery: true,
+  const loadOptions: PluginLoadOptions = {
+    ...selectedPluginLoadOptions,
     onlyPluginIds: runtimePluginIds,
-    runtimeOptions,
-  });
+  };
   let registry = resolvePluginToolRegistry({
     loadOptions,
     onlyPluginIds: runtimePluginIds,
@@ -1084,7 +1120,7 @@ export function resolvePluginTools(params: {
     // are not pinned to any active channel/surface registry until explicitly loaded.
     // Trigger a standalone load so their tool factories become available, then retry.
     try {
-      ensureStandaloneRuntimePluginRegistryLoaded({
+      registry = ensureStandaloneRuntimePluginRegistryLoaded({
         surface: "channel",
         requiredPluginIds: runtimePluginIds,
         loadOptions,
@@ -1097,7 +1133,7 @@ export function resolvePluginTools(params: {
       );
       throw error;
     }
-    registry = resolvePluginToolRegistry({
+    registry ??= resolvePluginToolRegistry({
       loadOptions,
       onlyPluginIds: runtimePluginIds,
     });

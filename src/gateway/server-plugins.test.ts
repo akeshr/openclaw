@@ -864,6 +864,25 @@ describe("loadGatewayPlugins", () => {
     expect(params.deliver).toBe(false);
   });
 
+  test("forwards runtime toolsAllow and timeoutSeconds on subagent run", async () => {
+    const serverPlugins = serverPluginsModule;
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("tools-timeout-forward"));
+
+    await runtime.run({
+      sessionKey: "s-tools-timeout",
+      message: "hello",
+      toolsAllow: ["workboard_read", "workboard_complete"],
+      timeoutSeconds: 120,
+      deliver: false,
+    });
+
+    const params = getRequiredLastDispatchedParams();
+    expect(params.sessionKey).toBe("s-tools-timeout");
+    expect(params.toolsAllow).toEqual(["workboard_read", "workboard_complete"]);
+    expect(params.timeout).toBe(120);
+  });
+
   test("generates a non-empty idempotencyKey when the caller omits it", async () => {
     const serverPlugins = serverPluginsModule;
     const runtime = await createSubagentRuntime(serverPlugins);

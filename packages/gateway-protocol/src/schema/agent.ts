@@ -179,6 +179,7 @@ export const AgentParamsSchema = Type.Object(
     groupChannel: Type.Optional(Type.String()),
     groupSpace: Type.Optional(Type.String()),
     timeout: Type.Optional(Type.Integer({ minimum: 0 })),
+    toolsAllow: Type.Optional(Type.Array(Type.String())),
     bestEffortDeliver: Type.Optional(Type.Boolean()),
     lane: Type.Optional(Type.String()),
     // Backward-compatible no-op. Older CLI clients sent this field on gateway

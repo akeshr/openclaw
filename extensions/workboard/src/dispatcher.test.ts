@@ -60,6 +60,16 @@ describe("dispatchAndStartWorkboardCards", () => {
       sessionKey: `agent:codex-main:subagent:workboard-default-${first.id}`,
       lane: `workboard:default:${first.id}`,
       deliver: false,
+      toolsAllow: [
+        "workboard_read",
+        "workboard_heartbeat",
+        "workboard_complete",
+        "workboard_block",
+        "workboard_proof",
+        "workboard_worker_log",
+        "workboard_attachment_add",
+      ],
+      timeoutSeconds: 1800,
     });
     expect(run.mock.calls[0]?.[0]?.message).toContain("Claim token:");
     expect(run.mock.calls[0]?.[0]?.message).toContain("workboard_complete with the card id");
@@ -136,6 +146,55 @@ describe("dispatchAndStartWorkboardCards", () => {
 
     expect(result.started).toEqual([]);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("blocks a dispatched worker that exits without required lifecycle tool calls", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Lifecycle tool pilot", status: "ready" });
+    const run = vi.fn().mockResolvedValue({ runId: "run-tool-missing" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    expect(result.started).toEqual([
+      expect.objectContaining({
+        cardId: card.id,
+        sessionKey: `subagent:workboard-default-${card.id}`,
+        runId: "run-tool-missing",
+      }),
+    ]);
+    await expect(
+      store.reconcileSubagentEnded({
+        targetSessionKey: `subagent:workboard-default-${card.id}`,
+        runId: "run-tool-missing",
+        outcome: "ok",
+        reason: "subagent-complete",
+        error: "worker blocked because Workboard lifecycle tools were unavailable",
+        endedAt: 20,
+      }),
+    ).resolves.toMatchObject({
+      status: "blocked",
+      execution: { status: "blocked" },
+      metadata: {
+        workerProtocol: {
+          state: "violated",
+          detail: "worker blocked because Workboard lifecycle tools were unavailable",
+        },
+        attempts: [
+          expect.objectContaining({
+            status: "blocked",
+            error: "worker blocked because Workboard lifecycle tools were unavailable",
+          }),
+        ],
+      },
+    });
+    await expect(store.get(card.id)).resolves.not.toMatchObject({
+      status: "review",
+      execution: { status: "review" },
+    });
   });
 
   it("blocks a card when worker start fails after claim", async () => {

@@ -320,6 +320,23 @@ describe("resolveEmbeddedAttemptToolConstructionPlan", () => {
 
   it("keeps plugin-owned catalog tools on the plugin construction path", () => {
     expectConstructionPlan(
+      resolveEmbeddedAttemptToolConstructionPlan({
+        toolsAllow: ["workboard_heartbeat", "workboard_complete", "workboard_block"],
+      }),
+      {
+        constructTools: true,
+        includeCoreTools: false,
+        runtimeToolAllowlist: ["workboard_heartbeat", "workboard_complete", "workboard_block"],
+        coding: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: true,
+          includeOpenClawTools: false,
+          includePluginTools: true,
+        },
+      },
+    );
+    expectConstructionPlan(
       resolveEmbeddedAttemptToolConstructionPlan({ toolsAllow: ["browser"] }),
       {
         constructTools: true,

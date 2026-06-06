@@ -5,6 +5,7 @@ import {
   filterProviderNormalizableTools,
   isSubagentSessionKey,
   normalizeAgentRuntimeTools,
+  resolveEmbeddedAttemptToolConstructionPlan,
   resolveAttemptSpawnWorkspaceDir,
   resolveModelAuthMode,
   resolveSandboxContext,
@@ -184,6 +185,15 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     (await import("openclaw/plugin-sdk/agent-harness")).createOpenClawCodingTools;
   toolBuildStages.mark("load-agent-harness-tools");
   const sessionKeys = resolveOpenClawCodingToolsSessionKeys(params, input.sandboxSessionKey);
+  const toolsAllowWithForcedRuntimeTools = includeForcedCodexDynamicToolAllow(
+    params.toolsAllow,
+    params,
+  );
+  const toolConstructionPlan = resolveEmbeddedAttemptToolConstructionPlan({
+    disableTools: params.disableTools,
+    isRawModelRun: params.modelRun === true || params.promptMode === "none",
+    toolsAllow: toolsAllowWithForcedRuntimeTools,
+  });
   const allTools = createOpenClawCodingTools({
     agentId: input.sessionAgentId,
     ...buildEmbeddedAttemptToolRunContext(params),
@@ -255,6 +265,8 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     forceMessageTool: shouldForceMessageTool(params),
     enableHeartbeatTool: params.trigger === "heartbeat" || input.forceHeartbeatTool === true,
     forceHeartbeatTool: params.trigger === "heartbeat" || input.forceHeartbeatTool === true,
+    runtimeToolAllowlist: toolConstructionPlan.runtimeToolAllowlist,
+    toolConstructionPlan: toolConstructionPlan.codingToolConstructionPlan,
     onYield: (message) => {
       input.onYieldDetected();
       input.onCodexAppServerEvent?.({
@@ -288,8 +300,10 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     hasInboundImages: (params.images?.length ?? 0) > 0,
   });
   toolBuildStages.mark("vision-filtering");
-  const toolsAllow = includeForcedCodexDynamicToolAllow(params.toolsAllow, params);
-  const filteredTools = filterCodexDynamicToolsForAllowlist(visionFilteredTools, toolsAllow);
+  const filteredTools = filterCodexDynamicToolsForAllowlist(
+    visionFilteredTools,
+    toolsAllowWithForcedRuntimeTools,
+  );
   toolBuildStages.mark("allowlist-filter");
   const normalizedTools = normalizeAgentRuntimeTools({
     runtimePlan: input.ignoreRuntimePlan ? undefined : params.runtimePlan,

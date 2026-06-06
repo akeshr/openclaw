@@ -6,6 +6,17 @@ import type { WorkboardCard, WorkboardExecution } from "./types.js";
 const DEFAULT_DISPATCH_MAX_STARTS = 3;
 const DEFAULT_DISPATCH_OWNER = "workboard-dispatcher";
 const DEFAULT_DISPATCH_MODEL = "default";
+const DEFAULT_WORKBOARD_WORKER_TIMEOUT_SECONDS = 30 * 60;
+
+export const WORKBOARD_WORKER_TOOLS_ALLOW = [
+  "workboard_read",
+  "workboard_heartbeat",
+  "workboard_complete",
+  "workboard_block",
+  "workboard_proof",
+  "workboard_worker_log",
+  "workboard_attachment_add",
+] as const;
 
 export type WorkboardSubagentRuntime = Pick<PluginRuntime["subagent"], "run">;
 
@@ -14,6 +25,8 @@ export type WorkboardDispatchStartOptions = {
   model?: string;
   provider?: string;
   ownerId?: string;
+  toolsAllow?: string[];
+  timeoutSeconds?: number;
   now?: number;
 };
 
@@ -169,6 +182,14 @@ export async function dispatchAndStartWorkboardCards(params: {
   const started: WorkboardStartedRun[] = [];
   const startFailures: WorkboardStartFailure[] = [];
   const model = params.options?.model?.trim() || DEFAULT_DISPATCH_MODEL;
+  const toolsAllow = params.options?.toolsAllow?.length
+    ? [...params.options.toolsAllow]
+    : [...WORKBOARD_WORKER_TOOLS_ALLOW];
+  const timeoutSeconds =
+    typeof params.options?.timeoutSeconds === "number" &&
+    Number.isFinite(params.options.timeoutSeconds)
+      ? Math.max(1, Math.trunc(params.options.timeoutSeconds))
+      : DEFAULT_WORKBOARD_WORKER_TIMEOUT_SECONDS;
   const cards = await params.store.list();
 
   for (const card of selectStartableCards(cards, maxStarts)) {
@@ -194,6 +215,8 @@ export async function dispatchAndStartWorkboardCards(params: {
         ...(params.options?.model ? { model: params.options.model } : {}),
         lane: `workboard:${cardBoardId(card)}:${card.id}`,
         idempotencyKey: `workboard:${card.id}:${claimed.card.updatedAt}`,
+        toolsAllow,
+        timeoutSeconds,
         lightContext: true,
         deliver: false,
       });

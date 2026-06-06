@@ -199,6 +199,14 @@ export type WorkboardBlockInput = {
   token?: unknown;
   reason?: unknown;
 };
+export type WorkboardSubagentTerminalInput = {
+  targetSessionKey?: unknown;
+  runId?: unknown;
+  outcome?: unknown;
+  reason?: unknown;
+  error?: unknown;
+  endedAt?: unknown;
+};
 export type WorkboardDispatchResult = {
   promoted: WorkboardCard[];
   reclaimed: WorkboardCard[];
@@ -2174,6 +2182,49 @@ function closeRunningAttempts(
   );
 }
 
+function isWorkboardOwnedSessionKey(value: string | undefined): boolean {
+  return Boolean(value?.includes(":workboard-") || value?.startsWith("subagent:workboard-"));
+}
+
+function isTerminalProtectedStatus(status: WorkboardStatus): boolean {
+  return status === "done" || status === "blocked" || status === "review";
+}
+
+function normalizeTerminalOutcome(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : undefined;
+}
+
+function terminalEventIsSuccess(input: WorkboardSubagentTerminalInput): boolean {
+  const outcome = normalizeTerminalOutcome(input.outcome);
+  const reason = normalizeTerminalOutcome(input.reason);
+  return outcome === "ok" || (!outcome && reason === "subagent-complete");
+}
+
+function terminalEventIsFailure(input: WorkboardSubagentTerminalInput): boolean {
+  const terminal =
+    normalizeTerminalOutcome(input.outcome) ?? normalizeTerminalOutcome(input.reason);
+  return (
+    terminal === "error" ||
+    terminal === "timeout" ||
+    terminal === "killed" ||
+    terminal === "reset" ||
+    terminal === "deleted" ||
+    terminal === "spawn-failed"
+  );
+}
+
+function normalizeTerminalEventDetail(input: WorkboardSubagentTerminalInput): string {
+  const error = normalizeBoundedString(input.error, undefined, 800, "terminal error");
+  const reason = normalizeBoundedString(input.reason, undefined, 800, "terminal reason");
+  if (error) {
+    return error;
+  }
+  if (reason && reason !== "subagent-complete") {
+    return reason;
+  }
+  return "Worker exited without calling workboard_complete or workboard_block.";
+}
+
 function notificationSequence(event: WorkboardNotification): number | undefined {
   return typeof event.sequence === "number" && Number.isFinite(event.sequence)
     ? Math.trunc(event.sequence)
@@ -3543,6 +3594,98 @@ export class WorkboardStore {
     });
   }
 
+  async reconcileSubagentEnded(
+    input: WorkboardSubagentTerminalInput,
+  ): Promise<WorkboardCard | undefined> {
+    return await this.enqueueMutation(async () => {
+      const sessionKey = normalizeBoundedString(
+        input.targetSessionKey,
+        undefined,
+        240,
+        "session key",
+      );
+      const runId = normalizeBoundedString(input.runId, undefined, 160, "run id");
+      const matched = (await this.list()).find((card) => {
+        const cardSession = cardSessionKey(card);
+        const cardRun = cardRunId(card);
+        return (
+          (runId && cardRun === runId) ||
+          (sessionKey && cardSession === sessionKey) ||
+          Boolean(
+            runId &&
+            card.metadata?.attempts?.some(
+              (attempt) => attempt.runId === runId && attempt.status === "running",
+            ),
+          ) ||
+          Boolean(
+            sessionKey &&
+            card.metadata?.attempts?.some(
+              (attempt) => attempt.sessionKey === sessionKey && attempt.status === "running",
+            ),
+          )
+        );
+      });
+      if (!matched || !isWorkboardOwnedSessionKey(cardSessionKey(matched) ?? sessionKey)) {
+        return undefined;
+      }
+      if (
+        isTerminalProtectedStatus(matched.status) ||
+        (matched.execution && matched.execution.status !== "running") ||
+        !matched.metadata?.attempts?.some((attempt) => attempt.status === "running")
+      ) {
+        return matched;
+      }
+
+      const now = normalizeTimestamp(input.endedAt, Date.now());
+      const success = terminalEventIsSuccess(input);
+      const failure = terminalEventIsFailure(input);
+      if (!success && !failure) {
+        return matched;
+      }
+      const reason = normalizeTerminalEventDetail(input);
+      const log: WorkboardWorkerLog = {
+        id: randomUUID(),
+        level: "error",
+        message: reason,
+        createdAt: now,
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(runId ? { runId } : {}),
+      };
+      const notification: WorkboardNotification = {
+        id: randomUUID(),
+        kind: "failed",
+        createdAt: now,
+        sequence: this.nextNotificationSequence(now),
+        message: capText(reason, 240) ?? reason,
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(runId ? { runId } : {}),
+      };
+      const execution =
+        matched.execution?.status === "running"
+          ? { ...matched.execution, status: "blocked" as const, updatedAt: now }
+          : matched.execution;
+      return await this.updateCard(matched.id, {
+        status: "blocked",
+        ...(execution ? { execution } : {}),
+        metadata: {
+          ...matched.metadata,
+          claim: undefined,
+          workerLogs: [...(matched.metadata?.workerLogs ?? []), log].slice(-MAX_CARD_WORKER_LOGS),
+          workerProtocol: {
+            state: "violated",
+            updatedAt: now,
+            detail: reason,
+          },
+          attempts: closeRunningAttempts(matched.metadata?.attempts, now, "blocked", reason),
+          failureCount: (matched.metadata?.failureCount ?? 0) + 1,
+          notifications: [...(matched.metadata?.notifications ?? []), notification].slice(
+            -MAX_CARD_NOTIFICATIONS,
+          ),
+        },
+      });
+    });
+  }
+
   async unblock(id: string, scope?: WorkboardMutationScope): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const existing = await this.get(id);
@@ -4019,15 +4162,30 @@ export class WorkboardStore {
         const latestAttempt = latestRunningAttempt(latest);
         const maxRuntimeSeconds = latest.metadata?.automation?.maxRuntimeSeconds;
         const runtimeStartedAt = latestAttempt?.startedAt ?? claim?.claimedAt ?? latest.startedAt;
+        const lastHeartbeatAt = claim?.lastHeartbeatAt ?? latest.execution?.updatedAt;
         const timedOut =
           Boolean(maxRuntimeSeconds && runtimeStartedAt) &&
           now - runtimeStartedAt! > secondsToDurationMs(maxRuntimeSeconds!);
+        const staleHeartbeat =
+          latest.status === "running" &&
+          Boolean(lastHeartbeatAt) &&
+          now - lastHeartbeatAt! > RUNNING_HEARTBEAT_STALE_MS;
         const claimExpired = Boolean(claim?.expiresAt && now - claim.expiresAt > CLAIM_RECLAIM_MS);
         const retriesExhausted = retryBudgetExhausted(latest);
-        if (latest.status === "running" && (timedOut || claimExpired)) {
+        if (latest.status === "running" && (timedOut || claimExpired || staleHeartbeat)) {
           const reason = timedOut
             ? "Run exceeded the card max runtime."
-            : "Claim expired without a recent heartbeat.";
+            : staleHeartbeat
+              ? "Running card heartbeat went stale."
+              : "Claim expired without a recent heartbeat.";
+          const workerLog: WorkboardWorkerLog = {
+            id: randomUUID(),
+            level: "error",
+            message: reason,
+            createdAt: now,
+            ...(cardSessionKey(latest) ? { sessionKey: cardSessionKey(latest) } : {}),
+            ...(cardRunId(latest) ? { runId: cardRunId(latest) } : {}),
+          };
           const execution =
             latest.execution?.status === "running"
               ? { ...latest.execution, status: "blocked" as const, updatedAt: now }
@@ -4039,6 +4197,9 @@ export class WorkboardStore {
               ...latest.metadata,
               claim: undefined,
               attempts: closeRunningAttempts(latest.metadata?.attempts, now, "blocked", reason),
+              workerLogs: [...(latest.metadata?.workerLogs ?? []), workerLog].slice(
+                -MAX_CARD_WORKER_LOGS,
+              ),
               failureCount: (latest.metadata?.failureCount ?? 0) + 1,
               notifications: [
                 ...(latest.metadata?.notifications ?? []),

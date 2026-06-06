@@ -14,6 +14,8 @@ export type SubagentRunParams = {
   lane?: string;
   lightContext?: boolean;
   deliver?: boolean;
+  toolsAllow?: string[];
+  timeoutSeconds?: number;
   idempotencyKey?: string;
 };
 
