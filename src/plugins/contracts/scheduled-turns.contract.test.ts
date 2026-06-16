@@ -102,6 +102,10 @@ function createMockCronService(): CronServiceContract {
     add: workflowMocks.cronAdd,
     update: vi.fn(async (id, patch) => makeCronJob({ id, ...patch })),
     remove: workflowMocks.cronRemove,
+    listCheckpointVisibilityObligations: vi.fn(async () => []),
+    closeCheckpointVisibilityObligation: vi.fn(async () => {
+      throw new Error("not implemented in scheduled-turns contract tests");
+    }),
     run: vi.fn(async () => ({ ok: true, ran: false, reason: "not-due" })),
     enqueueRun: vi.fn(async () => ({ ok: true, ran: false, reason: "not-due" })),
     getJob: vi.fn(() => undefined),

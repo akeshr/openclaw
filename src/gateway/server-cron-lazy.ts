@@ -99,6 +99,12 @@ export function createLazyGatewayCronState(params: LazyGatewayCronParams): Gatew
     async remove(id) {
       return await (await load()).state.cron.remove(id);
     },
+    async listCheckpointVisibilityObligations(opts) {
+      return await (await load()).state.cron.listCheckpointVisibilityObligations(opts);
+    },
+    async closeCheckpointVisibilityObligation(input) {
+      return await (await load()).state.cron.closeCheckpointVisibilityObligation(input);
+    },
     async run(id, mode) {
       return await (await load()).state.cron.run(id, mode);
     },

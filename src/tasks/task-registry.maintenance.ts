@@ -14,6 +14,11 @@ import {
   formatSubagentRecoveryWedgedReason,
   isSubagentRecoveryWedgedEntry,
 } from "../agents/subagent-recovery-state.js";
+import {
+  SUBAGENT_ENDED_OUTCOME_ERROR,
+  SUBAGENT_ENDED_REASON_ERROR,
+  SUBAGENT_TARGET_KIND_SUBAGENT,
+} from "../agents/subagent-lifecycle-events.js";
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -30,6 +35,7 @@ import {
   isPluginStateDatabaseOpen,
   sweepExpiredPluginStateEntries,
 } from "../plugin-state/plugin-state-store.js";
+import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import {
   deriveSessionChatTypeFromKey,
@@ -797,6 +803,49 @@ function markTaskLost(
   return updated;
 }
 
+async function maybeEmitLostTaskSubagentEndedHook(task: TaskRecord): Promise<void> {
+  const childSessionKey = task.childSessionKey?.trim();
+  const runId = task.runId?.trim() || task.sourceId?.trim();
+  if (!childSessionKey || !runId) {
+    return;
+  }
+  if (task.runtime !== "subagent" && task.runtime !== "cli") {
+    return;
+  }
+  if (!childSessionKey.includes(":subagent:") && !childSessionKey.startsWith("subagent:")) {
+    return;
+  }
+  const hookRunner = getGlobalHookRunner();
+  if (!hookRunner?.hasHooks("subagent_ended")) {
+    return;
+  }
+  try {
+    await hookRunner.runSubagentEnded(
+      {
+        targetSessionKey: childSessionKey,
+        targetKind: SUBAGENT_TARGET_KIND_SUBAGENT,
+        reason: SUBAGENT_ENDED_REASON_ERROR,
+        runId,
+        endedAt: task.endedAt,
+        outcome: SUBAGENT_ENDED_OUTCOME_ERROR,
+        error: task.error ?? "backing session missing",
+      },
+      {
+        runId,
+        childSessionKey,
+        requesterSessionKey: task.requesterSessionKey,
+      },
+    );
+  } catch (error) {
+    log.warn("Failed to emit subagent_ended hook for lost task", {
+      taskId: task.taskId,
+      childSessionKey,
+      runId,
+      error,
+    });
+  }
+}
+
 function markTaskRecovered(task: TaskRecord, recovery: CronTerminalRecovery): TaskRecord {
   const updated =
     taskRegistryMaintenanceRuntime.markTaskTerminalById({
@@ -1152,6 +1201,7 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
       }
       const next = markTaskLost(freshAfterHook, now, lostContext);
       if (next.status === "lost") {
+        await maybeEmitLostTaskSubagentEndedHook(next);
         reconciled += 1;
       }
       processed += 1;

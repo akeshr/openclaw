@@ -60,6 +60,9 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect(run.mock.calls[0]?.[0]).toMatchObject({
       sessionKey: `agent:codex-main:subagent:workboard-default-${first.id}`,
       lane: `workboard:default:${first.id}`,
+      toolsAllow: ["workboard_heartbeat", "workboard_complete", "workboard_block"],
+      visibleSendPolicy: "deny",
+      allowGatewaySubagentBinding: true,
       deliver: false,
     });
     expect(run.mock.calls[0]?.[0]?.message).toContain("Claim token:");
@@ -110,6 +113,38 @@ describe("dispatchAndStartWorkboardCards", () => {
       }),
     ]);
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("leaves todo cards idle until they are promoted or explicitly claimed", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const todo = await store.create({
+      title: "Pending worker",
+      status: "todo",
+      priority: "urgent",
+      agentId: "codex-main",
+    });
+    const ready = await store.create({
+      title: "Ready worker",
+      status: "ready",
+      priority: "normal",
+      agentId: "codex-side",
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-ready" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 3 },
+    });
+
+    expect(result.started).toEqual([expect.objectContaining({ cardId: ready.id })]);
+    expect(run).toHaveBeenCalledOnce();
+    const todoAfter = await store.get(todo.id);
+    expect(todoAfter).toMatchObject({ status: "todo" });
+    expect(todoAfter?.metadata?.claim).toBeUndefined();
+    expect(todoAfter?.sessionKey).toBeUndefined();
+    expect(todoAfter?.runId).toBeUndefined();
+    expect(todoAfter?.execution).toBeUndefined();
   });
 
   it("starts workers only for the selected board", async () => {

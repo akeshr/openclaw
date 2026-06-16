@@ -7,6 +7,11 @@ import type { WorkboardCard, WorkboardExecution } from "./types.js";
 const DEFAULT_DISPATCH_MAX_STARTS = 3;
 const DEFAULT_DISPATCH_OWNER = "workboard-dispatcher";
 const DEFAULT_DISPATCH_MODEL = "default";
+const WORKBOARD_WORKER_TOOLS_ALLOW = [
+  "workboard_heartbeat",
+  "workboard_complete",
+  "workboard_block",
+] as const;
 
 export type WorkboardSubagentRuntime = Pick<PluginRuntime["subagent"], "run">;
 
@@ -200,6 +205,9 @@ export async function dispatchAndStartWorkboardCards(params: {
         }),
         ...(params.options?.provider ? { provider: params.options.provider } : {}),
         ...(params.options?.model ? { model: params.options.model } : {}),
+        toolsAllow: [...WORKBOARD_WORKER_TOOLS_ALLOW],
+        visibleSendPolicy: "deny",
+        allowGatewaySubagentBinding: true,
         lane: `workboard:${cardBoardId(card)}:${card.id}`,
         idempotencyKey: `workboard:${card.id}:${claimed.card.updatedAt}`,
         lightContext: true,

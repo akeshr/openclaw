@@ -1825,6 +1825,48 @@ describe("embedded attempt harness pinning", () => {
     expectMockArgFields(runEmbeddedAgentMock, { toolsAllow: ["read", "web_search"] });
   });
 
+  it("forwards runtime visibleSendPolicy into embedded attempts", async () => {
+    const sessionEntry: SessionEntry = {
+      sessionId: "visible-send-policy-session",
+      updatedAt: Date.now(),
+    };
+    runEmbeddedAgentMock.mockResolvedValueOnce({
+      meta: { durationMs: 1 },
+    } satisfies EmbeddedAgentRunResult);
+
+    await runAgentAttempt({
+      providerOverride: "openai",
+      originalProvider: "openai",
+      modelOverride: "gpt-5.4",
+      cfg: {} as OpenClawConfig,
+      sessionEntry,
+      sessionId: sessionEntry.sessionId,
+      sessionKey: "agent:main:main",
+      sessionAgentId: "main",
+      sessionFile: path.join(tmpDir, "session.jsonl"),
+      workspaceDir: tmpDir,
+      body: "no visible sends",
+      isFallbackRetry: false,
+      resolvedThinkLevel: "medium",
+      timeoutMs: 1_000,
+      runId: "run-visible-send-policy",
+      opts: {
+        visibleSendPolicy: "deny",
+      } as Parameters<typeof runAgentAttempt>[0]["opts"],
+      runContext: {} as Parameters<typeof runAgentAttempt>[0]["runContext"],
+      spawnedBy: undefined,
+      messageChannel: undefined,
+      skillsSnapshot: undefined,
+      resolvedVerboseLevel: undefined,
+      agentDir: tmpDir,
+      onAgentEvent: vi.fn(),
+      authProfileProvider: "openai",
+      sessionHasHistory: false,
+    });
+
+    expectMockArgFields(runEmbeddedAgentMock, { visibleSendPolicy: "deny" });
+  });
+
   it("lets provider/model runtime policy choose Codex without storing a session harness pin", async () => {
     const sessionEntry: SessionEntry = {
       sessionId: "codex-history-session",

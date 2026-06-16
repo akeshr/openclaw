@@ -281,6 +281,19 @@ describe("gateway server agent", () => {
     expect(call.sourceReplyDeliveryMode).toBe("message_tool_only");
   });
 
+  test("agent forwards visibleSendPolicy to agentCommand", async () => {
+    const res = await rpcReq(gatewaySuite.ws, "agent", {
+      message: "hi",
+      sessionKey: "main",
+      visibleSendPolicy: "deny",
+      idempotencyKey: "idem-agent-visible-send-policy",
+    });
+    expect(res.ok).toBe(true);
+
+    const call = await waitForAgentCommandCall("idem-agent-visible-send-policy");
+    expect(call.visibleSendPolicy).toBe("deny");
+  });
+
   test("agent preserves spawnDepth on subagent sessions", async () => {
     await setTestSessionStore({
       entries: {

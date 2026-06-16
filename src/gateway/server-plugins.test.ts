@@ -936,6 +936,46 @@ describe("loadGatewayPlugins", () => {
     expect(params.idempotencyKey).toBe("caller-provided-key");
   });
 
+  test("forwards caller-supplied toolsAllow on subagent run", async () => {
+    const serverPlugins = serverPluginsModule;
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("tools-allow-forward"));
+
+    await runtime.run({
+      sessionKey: "s-tools-allow-forward",
+      message: "hello",
+      deliver: false,
+      toolsAllow: ["workboard_heartbeat", "workboard_complete", "workboard_block"],
+    });
+
+    const params = getRequiredLastDispatchedParams();
+    expect(params.sessionKey).toBe("s-tools-allow-forward");
+    expect(params.message).toBe("hello");
+    expect(params.toolsAllow).toEqual([
+      "workboard_heartbeat",
+      "workboard_complete",
+      "workboard_block",
+    ]);
+  });
+
+  test("forwards caller-supplied visibleSendPolicy on subagent run", async () => {
+    const serverPlugins = serverPluginsModule;
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("visible-send-policy-forward"));
+
+    await runtime.run({
+      sessionKey: "s-visible-send-policy-forward",
+      message: "hello",
+      deliver: false,
+      visibleSendPolicy: "deny",
+    });
+
+    const params = getRequiredLastDispatchedParams();
+    expect(params.sessionKey).toBe("s-visible-send-policy-forward");
+    expect(params.message).toBe("hello");
+    expect(params.visibleSendPolicy).toBe("deny");
+  });
+
   test("forwards lightContext as lightweight bootstrap context on subagent run", async () => {
     const serverPlugins = serverPluginsModule;
     const runtime = await createSubagentRuntime(serverPlugins);

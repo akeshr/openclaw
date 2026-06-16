@@ -257,8 +257,95 @@ describe("workboard gateway methods", () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionKey: `subagent:workboard-default-${card.id}`,
+        visibleSendPolicy: "deny",
       }),
     );
+  });
+
+  it("starts only ready, unclaimed, non-archived cards through gateway dispatch", async () => {
+    type RegisteredMethod = {
+      handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
+      opts: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[2];
+    };
+    const methods = new Map<string, RegisteredMethod>();
+    const run = vi.fn().mockResolvedValue({ runId: "run-active" });
+    const api = {
+      runtime: {
+        state: {
+          openKeyedStore: vi.fn(() => createMemoryStore()),
+        },
+        subagent: { run },
+      },
+      registerGatewayMethod: vi.fn(
+        (method: string, handler: RegisteredMethod["handler"], opts: RegisteredMethod["opts"]) => {
+          methods.set(method, { handler, opts });
+        },
+      ),
+    } as unknown as OpenClawPluginApi;
+    const store = new WorkboardStore(createMemoryStore());
+    const todo = await store.create({
+      title: "Pending worker",
+      status: "todo",
+      priority: "urgent",
+      agentId: "todo-agent",
+    });
+    const claimedReady = await store.create({
+      title: "Claimed worker",
+      status: "ready",
+      priority: "urgent",
+      agentId: "claimed-agent",
+    });
+    await store.update(claimedReady.id, {
+      metadata: {
+        claim: {
+          ownerId: "claimed-agent",
+          token: "claimed-token",
+          claimedAt: 1,
+          lastHeartbeatAt: 1,
+          expiresAt: Date.now() + 60_000,
+        },
+      },
+    });
+    const archivedReady = await store.create({
+      title: "Archived worker",
+      status: "ready",
+      priority: "urgent",
+      agentId: "archived-agent",
+    });
+    await store.archive(archivedReady.id, true);
+    const activeReady = await store.create({
+      title: "Active worker",
+      status: "ready",
+      priority: "normal",
+      agentId: "active-agent",
+    });
+
+    registerWorkboardGatewayMethods({ api, store });
+
+    const respond = vi.fn();
+    await methods.get("workboard.cards.dispatch")?.handler({ params: {}, respond } as never);
+
+    expect(respond.mock.calls[0]?.[0]).toBe(true);
+    expect(respond.mock.calls[0]?.[1]).toMatchObject({
+      started: [expect.objectContaining({ cardId: activeReady.id, runId: "run-active" })],
+    });
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: `agent:active-agent:subagent:workboard-default-${activeReady.id}`,
+        toolsAllow: ["workboard_heartbeat", "workboard_complete", "workboard_block"],
+        visibleSendPolicy: "deny",
+      }),
+    );
+    await expect(store.get(todo.id)).resolves.toMatchObject({ status: "todo" });
+    await expect(store.get(claimedReady.id)).resolves.toMatchObject({
+      status: "ready",
+      metadata: { claim: { ownerId: "claimed-agent" } },
+    });
+    await expect(store.get(archivedReady.id)).resolves.toMatchObject({
+      status: "ready",
+      metadata: { archivedAt: expect.any(Number) },
+    });
   });
 
   it("claims, heartbeats, and bulk-updates cards through gateway methods", async () => {

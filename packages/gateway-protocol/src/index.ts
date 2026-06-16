@@ -157,6 +157,12 @@ import {
   ConnectParamsSchema,
   type CronAddParams,
   CronAddParamsSchema,
+  type CronCheckpointVisibilityObligation,
+  type CronCheckpointVisibilityCloseParams,
+  CronCheckpointVisibilityCloseParamsSchema,
+  type CronCheckpointVisibilityListParams,
+  CronCheckpointVisibilityListParamsSchema,
+  CronCheckpointVisibilityObligationSchema,
   type CronGetParams,
   CronGetParamsSchema,
   type CronJob,
@@ -811,6 +817,10 @@ export const validateCronStatusParams = lazyCompile<CronStatusParams>(CronStatus
 export const validateCronGetParams = lazyCompile<CronGetParams>(CronGetParamsSchema);
 export const validateCronAddParams = lazyCompile<CronAddParams>(CronAddParamsSchema);
 export const validateCronUpdateParams = lazyCompile<CronUpdateParams>(CronUpdateParamsSchema);
+export const validateCronCheckpointVisibilityListParams =
+  lazyCompile<CronCheckpointVisibilityListParams>(CronCheckpointVisibilityListParamsSchema);
+export const validateCronCheckpointVisibilityCloseParams =
+  lazyCompile<CronCheckpointVisibilityCloseParams>(CronCheckpointVisibilityCloseParamsSchema);
 export const validateCronRemoveParams = lazyCompile<CronRemoveParams>(CronRemoveParamsSchema);
 export const validateCronRunParams = lazyCompile<CronRunParams>(CronRunParamsSchema);
 export const validateCronRunsParams = lazyCompile<CronRunsParams>(CronRunsParamsSchema);
@@ -1136,6 +1146,9 @@ export {
   CronGetParamsSchema,
   CronAddParamsSchema,
   CronUpdateParamsSchema,
+  CronCheckpointVisibilityObligationSchema,
+  CronCheckpointVisibilityListParamsSchema,
+  CronCheckpointVisibilityCloseParamsSchema,
   CronRemoveParamsSchema,
   CronRunParamsSchema,
   CronRunsParamsSchema,
@@ -1342,6 +1355,9 @@ export type {
   CronGetParams,
   CronAddParams,
   CronUpdateParams,
+  CronCheckpointVisibilityObligation,
+  CronCheckpointVisibilityCloseParams,
+  CronCheckpointVisibilityListParams,
   CronRemoveParams,
   CronRunParams,
   CronRunsParams,

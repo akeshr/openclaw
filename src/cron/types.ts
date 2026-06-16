@@ -181,6 +181,83 @@ export type CronRunOutcome = {
   diagnostics?: CronRunDiagnostics;
 };
 
+/** Opt-in audit-only visibility obligation policy for quiet-hours checkpoints. */
+export type CronCheckpointVisibilityPolicy = {
+  mode: "audit-only";
+  /** Stable operator-defined key used to dedupe the visibility obligation. */
+  idempotencyKey: string;
+  /** Explicit owner-visible target session; never inferred from "last" during repair. */
+  ownerSessionKey: string;
+  ownerAgentId?: string;
+  missionId?: string;
+  checkpointKind?: string;
+  evidenceHash?: string;
+};
+
+/** Phase-1 visibility obligation states. No delivery automation state is reachable here. */
+export type CronCheckpointVisibilityStatus =
+  | "pending"
+  | "manual-delivered"
+  | "suppressed"
+  | "blocked";
+
+export type CronCheckpointVisibilityEvidence = {
+  decidedBy: "jarvis" | "sentinel";
+  reason?: string;
+  messageId?: string;
+  reportPath?: string;
+  evidenceHash?: string;
+  currentStatusRef?: string;
+};
+
+export type CronCheckpointVisibilitySupersession = {
+  messageId?: string;
+  reportPath?: string;
+  evidenceHash?: string;
+  wave?: string;
+};
+
+export type CronCheckpointVisibilityObligation = {
+  idempotencyKey: string;
+  status: CronCheckpointVisibilityStatus;
+  source: {
+    jobId: string;
+    jobName?: string;
+    runId: string;
+    scheduleAtMs?: number;
+    runAtMs: number;
+    sessionTarget: "main";
+    wakeMode: "now";
+    payloadKind: "systemEvent";
+    payloadHash: string;
+    targetSessionKey?: string;
+    ownerSessionKey: string;
+    ownerAgentId?: string;
+    missionId?: string;
+    checkpointKind?: string;
+    evidenceHash?: string;
+  };
+  observed: {
+    runStatus: "skipped";
+    lastError: "quiet-hours";
+    deliveryStatus: "not-requested";
+  };
+  decision?: CronCheckpointVisibilityEvidence & {
+    status: Exclude<CronCheckpointVisibilityStatus, "pending">;
+    atMs: number;
+  };
+  supersededBy?: CronCheckpointVisibilitySupersession;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type CronCheckpointVisibilityCloseInput = CronCheckpointVisibilityEvidence & {
+  idempotencyKey: string;
+  jobId?: string;
+  status: Exclude<CronCheckpointVisibilityStatus, "pending">;
+  supersededBy?: CronCheckpointVisibilitySupersession;
+};
+
 /** Embedded-agent execution phase names surfaced to cron watchdog progress. */
 export type CronAgentExecutionPhase = EmbeddedAgentExecutionPhase;
 
@@ -314,6 +391,8 @@ export type CronJobState = {
   lastFailureNotificationDeliveryStatus?: CronDeliveryStatus;
   /** Delivery-specific error for the last failed run's failure notification. */
   lastFailureNotificationDeliveryError?: string;
+  /** Audit-only quiet-hours checkpoint visibility obligations. */
+  checkpointVisibilityObligations?: CronCheckpointVisibilityObligation[];
 };
 
 /** Fully persisted cron job with spec fields and mutable run state. */
@@ -325,6 +404,7 @@ export type CronJob = CronJobBase<
   CronDelivery,
   CronFailureAlert | false
 > & {
+  checkpointVisibility?: CronCheckpointVisibilityPolicy;
   state: CronJobState;
 };
 
@@ -341,9 +421,10 @@ export type CronJobCreate = Omit<CronJob, "id" | "createdAtMs" | "updatedAtMs" |
 
 /** Patch input accepted by cron APIs without allowing immutable identity fields. */
 export type CronJobPatch = Partial<
-  Omit<CronJob, "id" | "createdAtMs" | "state" | "payload" | "delivery">
+  Omit<CronJob, "id" | "createdAtMs" | "state" | "payload" | "delivery" | "checkpointVisibility">
 > & {
   payload?: CronPayloadPatch;
   delivery?: CronDeliveryPatch;
+  checkpointVisibility?: CronCheckpointVisibilityPolicy | null;
   state?: Partial<CronJobState>;
 };

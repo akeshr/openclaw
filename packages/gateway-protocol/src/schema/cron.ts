@@ -108,6 +108,17 @@ const CronDeliveryStatusSchema = Type.Union([
   Type.Literal("unknown"),
   Type.Literal("not-requested"),
 ]);
+const CronCheckpointVisibilityStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("manual-delivered"),
+  Type.Literal("suppressed"),
+  Type.Literal("blocked"),
+]);
+const CronCheckpointVisibilityClosedStatusSchema = Type.Union([
+  Type.Literal("manual-delivered"),
+  Type.Literal("suppressed"),
+  Type.Literal("blocked"),
+]);
 const NonBlankString = Type.String({ minLength: 1, pattern: "\\S" });
 const CronAnnounceChannelSchema = Type.Union([Type.Literal("last"), NonBlankString]);
 const CronFailoverReasonSchema = Type.Union([
@@ -378,6 +389,86 @@ const CronFailureNotificationDeliverySchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** Default-off audit-only quiet-hours checkpoint visibility policy. */
+export const CronCheckpointVisibilityPolicySchema = Type.Object(
+  {
+    mode: Type.Literal("audit-only"),
+    idempotencyKey: NonBlankString,
+    ownerSessionKey: NonBlankString,
+    ownerAgentId: Type.Optional(NonBlankString),
+    missionId: Type.Optional(NonBlankString),
+    checkpointKind: Type.Optional(NonBlankString),
+    evidenceHash: Type.Optional(NonBlankString),
+  },
+  { additionalProperties: false },
+);
+
+const CronCheckpointVisibilitySupersessionSchema = Type.Object(
+  {
+    messageId: Type.Optional(NonBlankString),
+    reportPath: Type.Optional(NonBlankString),
+    evidenceHash: Type.Optional(NonBlankString),
+    wave: Type.Optional(NonBlankString),
+  },
+  { additionalProperties: false },
+);
+
+const CronCheckpointVisibilitySourceSchema = Type.Object(
+  {
+    jobId: NonBlankString,
+    jobName: Type.Optional(NonBlankString),
+    runId: NonBlankString,
+    scheduleAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    runAtMs: Type.Integer({ minimum: 0 }),
+    sessionTarget: Type.Literal("main"),
+    wakeMode: Type.Literal("now"),
+    payloadKind: Type.Literal("systemEvent"),
+    payloadHash: NonBlankString,
+    targetSessionKey: Type.Optional(NonBlankString),
+    ownerSessionKey: NonBlankString,
+    ownerAgentId: Type.Optional(NonBlankString),
+    missionId: Type.Optional(NonBlankString),
+    checkpointKind: Type.Optional(NonBlankString),
+    evidenceHash: Type.Optional(NonBlankString),
+  },
+  { additionalProperties: false },
+);
+
+export const CronCheckpointVisibilityObligationSchema = Type.Object(
+  {
+    idempotencyKey: NonBlankString,
+    status: CronCheckpointVisibilityStatusSchema,
+    source: CronCheckpointVisibilitySourceSchema,
+    observed: Type.Object(
+      {
+        runStatus: Type.Literal("skipped"),
+        lastError: Type.Literal("quiet-hours"),
+        deliveryStatus: Type.Literal("not-requested"),
+      },
+      { additionalProperties: false },
+    ),
+    decision: Type.Optional(
+      Type.Object(
+        {
+          decidedBy: Type.Union([Type.Literal("jarvis"), Type.Literal("sentinel")]),
+          reason: Type.Optional(NonBlankString),
+          messageId: Type.Optional(NonBlankString),
+          reportPath: Type.Optional(NonBlankString),
+          evidenceHash: Type.Optional(NonBlankString),
+          currentStatusRef: Type.Optional(NonBlankString),
+          status: CronCheckpointVisibilityClosedStatusSchema,
+          atMs: Type.Integer({ minimum: 0 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    supersededBy: Type.Optional(CronCheckpointVisibilitySupersessionSchema),
+    createdAtMs: Type.Integer({ minimum: 0 }),
+    updatedAtMs: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
 /** Scheduler-maintained state for the latest run/delivery outcome. */
 export const CronJobStateSchema = Type.Object(
   {
@@ -400,6 +491,9 @@ export const CronJobStateSchema = Type.Object(
     lastFailureNotificationDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     lastFailureNotificationDeliveryError: Type.Optional(Type.String()),
     lastFailureAlertAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    checkpointVisibilityObligations: Type.Optional(
+      Type.Array(CronCheckpointVisibilityObligationSchema),
+    ),
   },
   { additionalProperties: false },
 );
@@ -445,6 +539,7 @@ export const CronJobSchema = Type.Object(
     payload: CronPayloadSchema,
     delivery: Type.Optional(CronDeliverySchema),
     failureAlert: Type.Optional(Type.Union([Type.Literal(false), CronFailureAlertSchema])),
+    checkpointVisibility: Type.Optional(CronCheckpointVisibilityPolicySchema),
     state: CronJobStateSchema,
   },
   { additionalProperties: false },
@@ -484,6 +579,7 @@ export const CronAddParamsSchema = Type.Object(
     payload: CronPayloadSchema,
     delivery: Type.Optional(CronDeliverySchema),
     failureAlert: Type.Optional(Type.Union([Type.Literal(false), CronFailureAlertSchema])),
+    checkpointVisibility: Type.Optional(CronCheckpointVisibilityPolicySchema),
   },
   { additionalProperties: false },
 );
@@ -499,6 +595,9 @@ export const CronJobPatchSchema = Type.Object(
     payload: Type.Optional(CronPayloadPatchSchema),
     delivery: Type.Optional(CronDeliveryPatchSchema),
     failureAlert: Type.Optional(Type.Union([Type.Literal(false), CronFailureAlertSchema])),
+    checkpointVisibility: Type.Optional(
+      Type.Union([CronCheckpointVisibilityPolicySchema, Type.Null()]),
+    ),
     state: Type.Optional(CronJobStatePatchSchema),
   },
   { additionalProperties: false },
@@ -534,6 +633,33 @@ export const CronRunsParamsSchema = Type.Object(
     deliveryStatus: Type.Optional(CronDeliveryStatusSchema),
     query: Type.Optional(Type.String()),
     sortDir: Type.Optional(CronSortDirSchema),
+  },
+  { additionalProperties: false },
+);
+
+/** Filters for listing audit-only checkpoint visibility obligations. */
+export const CronCheckpointVisibilityListParamsSchema = Type.Object(
+  {
+    jobId: Type.Optional(NonBlankString),
+    idempotencyKey: Type.Optional(NonBlankString),
+    status: Type.Optional(CronCheckpointVisibilityStatusSchema),
+  },
+  { additionalProperties: false },
+);
+
+/** Operator evidence used to close one pending checkpoint visibility obligation. */
+export const CronCheckpointVisibilityCloseParamsSchema = Type.Object(
+  {
+    jobId: Type.Optional(NonBlankString),
+    idempotencyKey: NonBlankString,
+    status: CronCheckpointVisibilityClosedStatusSchema,
+    decidedBy: Type.Union([Type.Literal("jarvis"), Type.Literal("sentinel")]),
+    reason: Type.Optional(NonBlankString),
+    messageId: Type.Optional(NonBlankString),
+    reportPath: Type.Optional(NonBlankString),
+    evidenceHash: Type.Optional(NonBlankString),
+    currentStatusRef: Type.Optional(NonBlankString),
+    supersededBy: Type.Optional(CronCheckpointVisibilitySupersessionSchema),
   },
   { additionalProperties: false },
 );

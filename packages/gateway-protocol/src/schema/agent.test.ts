@@ -63,6 +63,17 @@ describe("AgentParamsSchema", () => {
     expect(Value.Check(AgentParamsSchema, params)).toBe(true);
   });
 
+  it("accepts visible send policy on agent requests", () => {
+    expect(
+      Value.Check(AgentParamsSchema, {
+        message: "Run a no-send worker.",
+        sessionKey: "agent:main:subagent:worker",
+        visibleSendPolicy: "deny",
+        idempotencyKey: "visible-send-policy-deny",
+      }),
+    ).toBe(true);
+  });
+
   it("keeps task completion internal events strict", () => {
     const params = makeAgentParamsWithInternalEvent({
       ...musicCompletionEvent,

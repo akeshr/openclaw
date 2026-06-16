@@ -69,6 +69,7 @@ import { createTtsTool } from "./tools/tts-tool.js";
 import { createUpdatePlanTool } from "./tools/update-plan-tool.js";
 import { createVideoGenerateTool } from "./tools/video-generate-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
+import { filterVisibleSendTools, type VisibleSendPolicy } from "./visible-send-tool-policy.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 type OpenClawToolsDeps = {
@@ -144,6 +145,8 @@ export function createOpenClawTools(
     inboundEventKind?: InboundEventKind;
     /** If true, omit the message tool from the tool list. */
     disableMessageTool?: boolean;
+    /** Deny direct owner/source-visible send tools for no-send worker scopes. */
+    visibleSendPolicy?: VisibleSendPolicy;
     /** If true, include the heartbeat response tool for structured heartbeat outcomes. */
     enableHeartbeatTool?: boolean;
     /** If true, skip plugin tool resolution and return only shipped core tools. */
@@ -553,20 +556,21 @@ export function createOpenClawTools(
     ...collectPresentOpenClawTools([webSearchTool, webFetchTool, imageTool, pdfTool]),
   ];
   options?.recordToolPrepStage?.("openclaw-tools:core-tool-list");
-  let allTools = tools;
+  let allTools = filterVisibleSendTools(tools, options?.visibleSendPolicy);
   if (!options?.disablePluginTools) {
     const existingToolNames = new Set<string>();
-    for (const tool of tools) {
+    for (const tool of allTools) {
       existingToolNames.add(tool.name);
     }
     allTools = [
-      ...tools,
+      ...allTools,
       ...resolveOpenClawPluginToolsForOptions({
         options,
         resolvedConfig,
         existingToolNames,
       }),
     ];
+    allTools = filterVisibleSendTools(allTools, options?.visibleSendPolicy);
     options?.recordToolPrepStage?.("openclaw-tools:plugin-tools");
   }
 

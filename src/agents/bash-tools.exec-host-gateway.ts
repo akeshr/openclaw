@@ -295,7 +295,7 @@ function shouldAwaitGatewayApprovalInline(params: {
   turnSourceChannel?: string;
   approvalFollowupMode?: "agent" | "direct";
 }): boolean {
-  if (params.approvalFollowupMode !== undefined) {
+  if (params.approvalFollowupMode === "direct") {
     return false;
   }
   return normalizeMessageChannel(params.turnSourceChannel) === INTERNAL_MESSAGE_CHANNEL;

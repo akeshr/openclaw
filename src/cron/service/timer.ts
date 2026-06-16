@@ -27,6 +27,7 @@ import {
   markCronJobActive,
   type CronActiveJobMarker,
 } from "../active-jobs.js";
+import { maybeRecordCronCheckpointVisibilityObligation } from "../checkpoint-visibility.js";
 import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
 import { resolveCronExecutionRetryHint } from "../retry-hint.js";
 import {
@@ -654,6 +655,7 @@ export function applyJobResult(
     diagnostics?: CronRunOutcome["diagnostics"];
     delivered?: boolean;
     provider?: string;
+    sessionKey?: string;
     startedAt: number;
     endedAt: number;
   },
@@ -711,6 +713,17 @@ export function applyJobResult(
   job.state.lastFailureNotificationDelivered = deliveryState.failureNotification.delivered;
   job.state.lastFailureNotificationDeliveryStatus = deliveryState.failureNotification.status;
   job.state.lastFailureNotificationDeliveryError = deliveryState.failureNotification.error;
+  maybeRecordCronCheckpointVisibilityObligation({
+    job,
+    result: {
+      status: result.status,
+      ...(result.error !== undefined ? { error: result.error } : {}),
+      ...(result.sessionKey !== undefined ? { sessionKey: result.sessionKey } : {}),
+      startedAt: result.startedAt,
+      endedAt: result.endedAt,
+    },
+    nowMs: result.endedAt,
+  });
   job.updatedAtMs = result.endedAt;
 
   // Track consecutive errors for backoff / auto-disable; skipped runs use a
@@ -970,6 +983,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
         diagnostics: result.diagnostics,
         delivered: result.delivered,
         provider: result.provider,
+        sessionKey: result.sessionKey,
         startedAt: result.startedAt,
         endedAt: result.endedAt,
       });
@@ -993,6 +1007,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
     diagnostics: result.diagnostics,
     delivered: result.delivered,
     provider: result.provider,
+    sessionKey: result.sessionKey,
     startedAt: result.startedAt,
     endedAt: result.endedAt,
   });
@@ -2192,6 +2207,7 @@ export async function executeJob(
     diagnostics: coreResult.diagnostics,
     delivered: coreResult.delivered,
     provider: coreResult.provider,
+    sessionKey: coreResult.sessionKey,
     startedAt,
     endedAt,
   });

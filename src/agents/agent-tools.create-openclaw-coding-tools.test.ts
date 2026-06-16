@@ -376,6 +376,82 @@ describe("createOpenClawCodingTools", () => {
     expect(toolNameList(tools)).toContain("message");
   });
 
+  it("denies visible-send tools through forced and runtime policy paths", () => {
+    const createOpenClawToolsMock = vi.mocked(createOpenClawTools);
+    createOpenClawToolsMock.mockClear();
+
+    const tools = createOpenClawCodingTools({
+      config: { tools: { profile: "minimal" } },
+      runtimeToolAllowlist: ["message", "sessions_send"],
+      forceMessageTool: true,
+      sourceReplyDeliveryMode: "message_tool_only",
+      visibleSendPolicy: "deny",
+      toolConstructionPlan: {
+        includeBaseCodingTools: false,
+        includeShellTools: false,
+        includeChannelTools: false,
+        includeOpenClawTools: true,
+        includePluginTools: false,
+      },
+    });
+
+    expect(toolNameList(tools)).not.toContain("message");
+    expect(toolNameList(tools)).not.toContain("sessions_send");
+    expect(latestCreateOpenClawToolsOptions().visibleSendPolicy).toBe("deny");
+  });
+
+  it("preserves runtime-allowed plugin tools through subagent allowlists", async () => {
+    const createOpenClawToolsMock = vi.mocked(createOpenClawTools);
+    createOpenClawToolsMock.mockImplementationOnce(() => [
+      {
+        name: "workboard_heartbeat",
+        label: "Workboard Heartbeat",
+        description: "Heartbeat a Workboard card.",
+        parameters: { type: "object", properties: {} },
+        execute: async () => ({ content: [], details: {} }),
+      } as OpenClawCodingTool,
+    ]);
+    const agentId = `runtime-allowed-subagent-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const sessionKey = `agent:${agentId}:subagent:workboard-card`;
+    const storeTemplate = path.join(
+      os.tmpdir(),
+      `openclaw-session-store-${agentId}-{agentId}.json`,
+    );
+    await writeSessionStore(storeTemplate, agentId, {
+      [sessionKey]: {
+        sessionId: "workboard-card-session",
+        updatedAt: Date.now(),
+        spawnDepth: 1,
+        subagentRole: "orchestrator",
+        subagentControlScope: "none",
+      },
+    });
+
+    const tools = createOpenClawCodingTools({
+      sessionKey,
+      config: {
+        session: { store: storeTemplate },
+        tools: {
+          subagents: {
+            tools: {
+              allow: ["read"],
+            },
+          },
+        },
+      },
+      runtimeToolAllowlist: ["workboard_heartbeat"],
+      toolConstructionPlan: {
+        includeBaseCodingTools: false,
+        includeShellTools: false,
+        includeChannelTools: false,
+        includeOpenClawTools: true,
+        includePluginTools: true,
+      },
+    });
+
+    expect(toolNameList(tools)).toEqual(["workboard_heartbeat"]);
+  });
+
   it("preserves runtime-allowed message through local model lean filtering", () => {
     const tools = createOpenClawCodingTools({
       config: {

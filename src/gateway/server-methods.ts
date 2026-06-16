@@ -305,6 +305,8 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "cron.remove",
       "cron.run",
       "cron.runs",
+      "cron.checkpointVisibility.list",
+      "cron.checkpointVisibility.close",
     ],
     loadHandlers: loadCronHandlers,
   }),

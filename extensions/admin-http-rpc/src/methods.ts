@@ -39,6 +39,8 @@ const ADMIN_HTTP_RPC_ALLOWED_METHOD_GROUPS = {
     "cron.update",
     "cron.remove",
     "cron.run",
+    "cron.checkpointVisibility.list",
+    "cron.checkpointVisibility.close",
   ],
   devices: ["device.pair.list", "device.pair.approve", "device.pair.reject", "device.pair.remove"],
   nodes: [

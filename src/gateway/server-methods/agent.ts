@@ -1101,6 +1101,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       groupSpace?: string;
       lane?: string;
       extraSystemPrompt?: string;
+      toolsAllow?: string[];
       modelRun?: boolean;
       promptMode?: "full" | "minimal" | "none";
       bootstrapContextMode?: "full" | "lightweight";
@@ -1114,6 +1115,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       idempotencyKey: string;
       sourceReplyDeliveryMode?: "automatic" | "message_tool_only";
       disableMessageTool?: boolean;
+      visibleSendPolicy?: "allow" | "deny";
       timeout?: number;
       bestEffortDeliver?: boolean;
       cleanupBundleMcpOnRunEnd?: boolean;
@@ -2752,6 +2754,7 @@ export const agentHandlers: GatewayRequestHandlers = {
               modelRun: request.modelRun === true,
               promptMode: request.promptMode,
               extraSystemPrompt: request.extraSystemPrompt,
+              toolsAllow: request.toolsAllow,
               bootstrapContextMode: request.bootstrapContextMode,
               bootstrapContextRunKind: request.bootstrapContextRunKind,
               acpTurnSource: request.acpTurnSource,
@@ -2762,6 +2765,7 @@ export const agentHandlers: GatewayRequestHandlers = {
               preserveUserFacingSessionModelState,
               sourceReplyDeliveryMode: request.sourceReplyDeliveryMode,
               disableMessageTool: request.disableMessageTool,
+              visibleSendPolicy: request.visibleSendPolicy,
               suppressPromptPersistence:
                 requestedPromptPersistenceSuppression ||
                 shouldSuppressAgentPromptPersistence({

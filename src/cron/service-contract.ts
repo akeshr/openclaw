@@ -3,6 +3,10 @@ import type { CronListPageOptions, CronListPageResult } from "./service/list-pag
 import type {
   CronAddInput,
   CronAddResult,
+  CronCheckpointVisibilityCloseParams,
+  CronCheckpointVisibilityCloseResult,
+  CronCheckpointVisibilityListParams,
+  CronCheckpointVisibilityListResult,
   CronListResult,
   CronRemoveResult,
   CronRunMode,
@@ -29,6 +33,12 @@ export interface CronServiceContract {
   add(input: CronAddInput): Promise<CronAddResult>;
   update(id: string, patch: CronUpdateInput): Promise<CronUpdateResult>;
   remove(id: string): Promise<CronRemoveResult>;
+  listCheckpointVisibilityObligations(
+    opts?: CronCheckpointVisibilityListParams,
+  ): Promise<CronCheckpointVisibilityListResult>;
+  closeCheckpointVisibilityObligation(
+    input: CronCheckpointVisibilityCloseParams,
+  ): Promise<CronCheckpointVisibilityCloseResult>;
   run(id: string, mode?: CronRunMode): Promise<CronServiceRunResult>;
   enqueueRun(id: string, mode?: CronRunMode): Promise<CronServiceRunResult>;
   getJob(id: string): CronJob | undefined;

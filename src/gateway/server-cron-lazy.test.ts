@@ -151,6 +151,8 @@ function createCronService(): CronServiceContract {
     add: vi.fn(async () => ({ ok: true }) as never),
     update: vi.fn(async () => ({ ok: true }) as never),
     remove: vi.fn(async () => ({ ok: true }) as never),
+    listCheckpointVisibilityObligations: vi.fn(async () => [] as never),
+    closeCheckpointVisibilityObligation: vi.fn(async () => ({}) as never),
     run: vi.fn(async () => ({ ok: true, ran: false, reason: "invalid-spec" }) as never),
     enqueueRun: vi.fn(async () => ({ ok: true, ran: false, reason: "invalid-spec" }) as never),
     getJob: vi.fn(() => undefined),

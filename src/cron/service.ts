@@ -51,6 +51,18 @@ export class CronService implements CronServiceContract {
     return await ops.remove(this.state, id);
   }
 
+  async listCheckpointVisibilityObligations(
+    opts?: Parameters<typeof ops.listCheckpointVisibilityObligations>[1],
+  ) {
+    return await ops.listCheckpointVisibilityObligations(this.state, opts);
+  }
+
+  async closeCheckpointVisibilityObligation(
+    input: Parameters<typeof ops.closeCheckpointVisibilityObligation>[1],
+  ) {
+    return await ops.closeCheckpointVisibilityObligation(this.state, input);
+  }
+
   async run(id: string, mode?: "due" | "force"): Promise<CronServiceRunResult> {
     return await ops.run(this.state, id, mode);
   }

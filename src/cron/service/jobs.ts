@@ -5,6 +5,10 @@ import {
   normalizeOptionalThreadValue,
 } from "@openclaw/normalization-core/string-coerce";
 import { normalizeAgentId } from "../../routing/session-key.js";
+import {
+  assertCronCheckpointVisibilityPolicySupported,
+  normalizeCronCheckpointVisibilityPolicy,
+} from "../checkpoint-visibility.js";
 import { parseAbsoluteTimeMs } from "../parse.js";
 import {
   coerceFiniteScheduleNumber,
@@ -785,11 +789,17 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     payload: input.payload,
     delivery: resolveInitialCronDelivery(input),
     failureAlert: input.failureAlert,
+    ...(input.checkpointVisibility !== undefined
+      ? {
+          checkpointVisibility: normalizeCronCheckpointVisibilityPolicy(input.checkpointVisibility),
+        }
+      : {}),
     state: {
       ...input.state,
     },
   };
   assertSupportedJobSpec(job);
+  assertCronCheckpointVisibilityPolicySupported(job);
   assertMainSessionAgentId(job, state.deps.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);
@@ -851,6 +861,9 @@ export function applyJobPatch(
   if ("failureAlert" in patch) {
     job.failureAlert = mergeCronFailureAlert(job.failureAlert, patch.failureAlert);
   }
+  if ("checkpointVisibility" in patch) {
+    job.checkpointVisibility = normalizeCronCheckpointVisibilityPolicy(patch.checkpointVisibility);
+  }
   if (
     job.sessionTarget === "main" &&
     job.delivery?.mode !== "webhook" &&
@@ -879,6 +892,7 @@ export function applyJobPatch(
     job.sessionKey = normalizeOptionalString((patch as { sessionKey?: unknown }).sessionKey);
   }
   assertSupportedJobSpec(job);
+  assertCronCheckpointVisibilityPolicySupported(job);
   assertMainSessionAgentId(job, opts?.defaultAgentId);
   assertDeliverySupport(job);
   assertFailureDestinationSupport(job);

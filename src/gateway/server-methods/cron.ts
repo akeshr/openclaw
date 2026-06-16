@@ -4,6 +4,8 @@ import {
   errorShape,
   formatValidationErrors,
   validateCronAddParams,
+  validateCronCheckpointVisibilityCloseParams,
+  validateCronCheckpointVisibilityListParams,
   validateCronGetParams,
   validateCronListParams,
   validateCronRemoveParams,
@@ -238,7 +240,9 @@ function isCronInvalidRequestError(err: unknown): boolean {
     message.includes("cron completion destination webhook requires") ||
     message.includes("cron failure destination webhook requires") ||
     message.includes("cron channel delivery config is only supported") ||
-    message.includes("cron delivery.failureDestination is only supported")
+    message.includes("cron delivery.failureDestination is only supported") ||
+    message.includes("cron checkpointVisibility") ||
+    message.includes("checkpoint visibility")
   );
 }
 
@@ -388,6 +392,41 @@ export const cronHandlers: GatewayRequestHandlers = {
       return;
     }
     respond(true, job, undefined);
+  },
+  "cron.checkpointVisibility.list": async ({ params, respond, context }) => {
+    if (!validateCronCheckpointVisibilityListParams(params)) {
+      respondInvalidCronParams(
+        respond,
+        "cron.checkpointVisibility.list",
+        formatValidationErrors(validateCronCheckpointVisibilityListParams.errors),
+      );
+      return;
+    }
+    const obligations = await context.cron.listCheckpointVisibilityObligations(
+      params as Parameters<typeof context.cron.listCheckpointVisibilityObligations>[0],
+    );
+    respond(true, { obligations }, undefined);
+  },
+  "cron.checkpointVisibility.close": async ({ params, respond, context }) => {
+    if (!validateCronCheckpointVisibilityCloseParams(params)) {
+      respondInvalidCronParams(
+        respond,
+        "cron.checkpointVisibility.close",
+        formatValidationErrors(validateCronCheckpointVisibilityCloseParams.errors),
+      );
+      return;
+    }
+    try {
+      const result = await context.cron.closeCheckpointVisibilityObligation(
+        params as Parameters<typeof context.cron.closeCheckpointVisibilityObligation>[0],
+      );
+      respond(true, result, undefined);
+    } catch (err) {
+      if (!isCronInvalidRequestError(err)) {
+        throw err;
+      }
+      respondInvalidCronParams(respond, "cron.checkpointVisibility.close", formatErrorMessage(err));
+    }
   },
   "cron.add": async ({ params, respond, context }) => {
     const sessionKey =

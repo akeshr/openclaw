@@ -2,6 +2,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { normalizeCronCheckpointVisibilityPolicy } from "../checkpoint-visibility.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { getInvalidPersistedCronJobReason } from "../persisted-shape.js";
@@ -212,6 +213,13 @@ function scheduleFromRow(row: CronJobRow): CronSchedule | null {
 }
 
 function rowToCronJob(row: CronJobRow): CronJob | null {
+  const configJob = parseJsonObject<Record<string, unknown>>(row.job_json, {});
+  let checkpointVisibility: ReturnType<typeof normalizeCronCheckpointVisibilityPolicy>;
+  try {
+    checkpointVisibility = normalizeCronCheckpointVisibilityPolicy(configJob.checkpointVisibility);
+  } catch {
+    return null;
+  }
   const schedule = scheduleFromRow(row);
   const payload = payloadFromRow(row);
   const delivery = deliveryFromRow(row);
@@ -239,6 +247,7 @@ function rowToCronJob(row: CronJobRow): CronJob | null {
     payload,
     ...(delivery ? { delivery } : {}),
     ...(failureAlert !== undefined ? { failureAlert } : {}),
+    ...(checkpointVisibility ? { checkpointVisibility } : {}),
     state: stateFromRow(row),
   };
 }

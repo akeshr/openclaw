@@ -143,6 +143,9 @@ import {
 } from "./config.js";
 import {
   CronAddParamsSchema,
+  CronCheckpointVisibilityCloseParamsSchema,
+  CronCheckpointVisibilityListParamsSchema,
+  CronCheckpointVisibilityObligationSchema,
   CronGetParamsSchema,
   CronJobSchema,
   CronListParamsSchema,
@@ -532,6 +535,9 @@ export const ProtocolSchemas = {
   CronGetParams: CronGetParamsSchema,
   CronAddParams: CronAddParamsSchema,
   CronUpdateParams: CronUpdateParamsSchema,
+  CronCheckpointVisibilityObligation: CronCheckpointVisibilityObligationSchema,
+  CronCheckpointVisibilityListParams: CronCheckpointVisibilityListParamsSchema,
+  CronCheckpointVisibilityCloseParams: CronCheckpointVisibilityCloseParamsSchema,
   CronRemoveParams: CronRemoveParamsSchema,
   CronRunParams: CronRunParamsSchema,
   CronRunsParams: CronRunsParamsSchema,

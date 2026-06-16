@@ -114,6 +114,11 @@ import {
   type ToolSearchCatalogRef,
   type ToolSearchCatalogToolExecutor,
 } from "./tool-search.js";
+import {
+  filterVisibleSendTools,
+  type VisibleSendPolicy,
+  visibleSendPolicyDenies,
+} from "./visible-send-tool-policy.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 const MEMORY_FLUSH_ALLOWED_TOOL_NAMES = new Set(["read", "write"]);
@@ -519,6 +524,8 @@ export function createOpenClawCodingTools(options?: {
   inboundEventKind?: InboundEventKind;
   /** If true, omit the message tool from the tool list. */
   disableMessageTool?: boolean;
+  /** Deny direct owner/source-visible send tools for no-send worker scopes. */
+  visibleSendPolicy?: VisibleSendPolicy;
   /** Keep the message tool available even when the selected profile omits it. */
   forceMessageTool?: boolean;
   /** Include the heartbeat response tool for structured heartbeat outcomes. */
@@ -625,19 +632,23 @@ export function createOpenClawCodingTools(options?: {
   const mergeToolSearchControlAllowlist = <TPolicy extends { allow?: string[] }>(
     policy: TPolicy | undefined,
   ) => mergeAlsoAllowPolicy(policy, toolSearchControlAllowlist);
+  const denyVisibleSendTools = visibleSendPolicyDenies(options?.visibleSendPolicy);
   const runtimeToolAllowlistIncludesMessage = expandToolGroups(
     options?.runtimeToolAllowlist ?? [],
   ).some((toolName) => {
     const normalized = normalizeToolName(toolName);
-    return normalized === "*" || normalized === "message";
+    return !denyVisibleSendTools && (normalized === "*" || normalized === "message");
   });
   const localModelLeanPreserveToolNames = resolveLocalModelLeanPreserveToolNames({
     toolNames: options?.runtimeToolAllowlist,
-    forceMessageTool: options?.forceMessageTool,
-    sourceReplyDeliveryMode: options?.sourceReplyDeliveryMode,
+    forceMessageTool: !denyVisibleSendTools && options?.forceMessageTool,
+    sourceReplyDeliveryMode: denyVisibleSendTools ? undefined : options?.sourceReplyDeliveryMode,
   });
+  const runtimeToolAllowlistAlsoAllow = options?.runtimeToolAllowlist ?? [];
   const runtimeProfileAlsoAllow = [
-    ...(options?.forceMessageTool || options?.sourceReplyDeliveryMode === "message_tool_only"
+    ...runtimeToolAllowlistAlsoAllow,
+    ...(!denyVisibleSendTools &&
+    (options?.forceMessageTool || options?.sourceReplyDeliveryMode === "message_tool_only")
       ? ["message"]
       : []),
     ...(runtimeToolAllowlistIncludesMessage ? ["message"] : []),
@@ -690,7 +701,13 @@ export function createOpenClawCodingTools(options?: {
   const senderPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(senderPolicy);
   const sandboxToolPolicyWithToolSearchControls =
     mergeToolSearchControlAllowlist(sandboxToolPolicy);
-  const subagentPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(subagentPolicy);
+  const subagentPolicyWithToolSearchControls = mergeToolSearchControlAllowlist(
+    mergeAlsoAllowPolicy(subagentPolicy, runtimeToolAllowlistAlsoAllow),
+  );
+  const inheritedToolPolicyWithRuntimeAllow = mergeAlsoAllowPolicy(
+    inheritedToolPolicy,
+    runtimeToolAllowlistAlsoAllow,
+  );
   const allowBackground = isToolAllowedByPolicies("process", [
     profilePolicyWithAlsoAllow,
     providerProfilePolicyWithAlsoAllow,
@@ -958,6 +975,7 @@ export function createOpenClawCodingTools(options?: {
             modelHasVision: options?.modelHasVision,
             requireExplicitMessageTarget: options?.requireExplicitMessageTarget,
             disableMessageTool: options?.disableMessageTool,
+            visibleSendPolicy: options?.visibleSendPolicy,
             requesterAgentIdOverride: agentId,
             allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
             authProfileStore: options?.authProfileStore,
@@ -1049,6 +1067,7 @@ export function createOpenClawCodingTools(options?: {
           sourceReplyDeliveryMode: options?.sourceReplyDeliveryMode,
           inboundEventKind: options?.inboundEventKind,
           disableMessageTool: options?.disableMessageTool,
+          visibleSendPolicy: options?.visibleSendPolicy,
           enableHeartbeatTool,
           disablePluginTools: !includePluginTools,
           wrapBeforeToolCallHook: false,
@@ -1115,10 +1134,15 @@ export function createOpenClawCodingTools(options?: {
     localModelLeanPreserveToolNames,
   });
   options?.recordToolPrepStage?.("model-provider-policy");
+  const toolsForVisibleSendPolicy = filterVisibleSendTools(
+    toolsForModelProvider,
+    options?.visibleSendPolicy,
+  );
+  options?.recordToolPrepStage?.("visible-send-policy");
   // Sender identity is carried for command/channel-action auth; tool visibility
   // comes from configured tool policies, not per-turn sender ownership.
   const subagentFiltered = applyToolPolicyPipeline({
-    tools: toolsForModelProvider,
+    tools: toolsForVisibleSendPolicy,
     toolMeta: (tool) => getPluginToolMeta(tool),
     warn: logWarn,
     steps: [
@@ -1148,7 +1172,11 @@ export function createOpenClawCodingTools(options?: {
         label: "subagent tools.allow",
         unavailableCoreToolReason,
       },
-      { policy: inheritedToolPolicy, label: "inherited tools", unavailableCoreToolReason },
+      {
+        policy: inheritedToolPolicyWithRuntimeAllow,
+        label: "inherited tools",
+        unavailableCoreToolReason,
+      },
     ],
     auditLogLevel: options?.toolPolicyAuditLogLevel,
   });

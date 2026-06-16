@@ -2,8 +2,13 @@
 import type { CronConfig } from "../../config/types.cron.js";
 import type { HeartbeatRunResult, HeartbeatWakeRequest } from "../../infra/heartbeat-wake.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
+import type {
+  CronCheckpointVisibilityListEntry,
+  CronCheckpointVisibilityListOptions,
+} from "../checkpoint-visibility.js";
 import type { QuarantinedCronConfigJob } from "../store.js";
 import type {
+  CronCheckpointVisibilityCloseInput,
   CronAgentExecutionPhaseUpdate,
   CronAgentExecutionStarted,
   CronFailureNotificationDelivery,
@@ -268,6 +273,14 @@ export type CronRemoveResult = { ok: true; removed: boolean } | { ok: false; rem
 export type CronAddResult = CronJob;
 /** Updated cron job returned by service mutation calls. */
 export type CronUpdateResult = CronJob;
+/** Filters accepted by the quiet-hours checkpoint visibility obligation list operation. */
+export type CronCheckpointVisibilityListParams = CronCheckpointVisibilityListOptions;
+/** Operator close input for one checkpoint visibility obligation. */
+export type CronCheckpointVisibilityCloseParams = CronCheckpointVisibilityCloseInput;
+/** Read/list entry returned for audit-only checkpoint visibility obligations. */
+export type CronCheckpointVisibilityListResult = CronCheckpointVisibilityListEntry[];
+/** Close result returned after writing operator evidence to one obligation. */
+export type CronCheckpointVisibilityCloseResult = CronCheckpointVisibilityListEntry;
 
 /** Chronological job list returned by service read calls. */
 export type CronListResult = CronJob[];

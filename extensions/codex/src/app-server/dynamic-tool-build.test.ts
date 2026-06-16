@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addSandboxShellDynamicToolsIfAvailable,
   buildDynamicTools,
+  filterCodexDynamicToolsByVisibleSendPolicy,
   filterCodexDynamicToolsForAllowlist,
   hasWildcardCodexToolsAllow,
   includeForcedCodexDynamicToolAllow,
@@ -199,6 +200,56 @@ describe("Codex app-server dynamic tool build", () => {
     const webSearch = toolBridge.specs.find((tool) => tool.name === "web_search");
     expect(webSearch).not.toHaveProperty("deferLoading");
     expect(webSearch).not.toHaveProperty("namespace");
+  });
+
+  it("passes runtime toolsAllow into tool construction so optional plugin tools materialize", async () => {
+    const lifecycleToolNames = ["workboard_heartbeat", "workboard_complete", "workboard_block"];
+    let observedAllowlist: string[] | undefined;
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      observedAllowlist = options?.runtimeToolAllowlist;
+      const allowed = new Set(observedAllowlist ?? []);
+      return lifecycleToolNames.filter((name) => allowed.has(name)).map(createRuntimeDynamicTool);
+    });
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const params = createParams(sessionFile, workspaceDir);
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    params.toolsAllow = lifecycleToolNames;
+
+    const tools = await buildDynamicToolsForTest(params, workspaceDir);
+
+    expect(observedAllowlist).toEqual(lifecycleToolNames);
+    expect(tools.map((tool) => tool.name)).toEqual(lifecycleToolNames);
+  });
+
+  it("denies visible-send dynamic tools for no-send delegated scopes", async () => {
+    let observedOptions: unknown;
+    setOpenClawCodingToolsFactoryForTests((options) => {
+      observedOptions = options;
+      return [
+        createRuntimeDynamicTool("message"),
+        createRuntimeDynamicTool("sessions_send"),
+        createRuntimeDynamicTool("workboard_heartbeat"),
+      ];
+    });
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const params = createParams(sessionFile, workspaceDir);
+    params.disableTools = false;
+    params.runtimePlan = createCodexRuntimePlanFixture();
+    params.toolsAllow = ["*"];
+    params.sourceReplyDeliveryMode = "message_tool_only";
+    params.visibleSendPolicy = "deny";
+
+    const tools = await buildDynamicToolsForTest(params, workspaceDir);
+
+    expect(observedOptions).toMatchObject({
+      sourceReplyDeliveryMode: "automatic",
+      visibleSendPolicy: "deny",
+      forceMessageTool: false,
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(["workboard_heartbeat"]);
   });
 
   it("quarantines unreadable tool entries before Codex-specific filtering", async () => {
@@ -909,6 +960,19 @@ describe("Codex app-server dynamic tool build", () => {
     expect(shouldForceMessageTool(params)).toBe(true);
     expect(includeForcedCodexDynamicToolAllow([], params)).toEqual(["message"]);
 
+    params.visibleSendPolicy = "deny";
+    expect(shouldForceMessageTool(params)).toBe(false);
+    expect(
+      includeForcedCodexDynamicToolAllow(["message", "sessions_send", "web_search"], params),
+    ).toEqual(["web_search"]);
+    expect(
+      filterCodexDynamicToolsByVisibleSendPolicy(
+        [{ name: "message" }, { name: "sessions_send" }, { name: "web_search" }],
+        params,
+      ).map((tool) => tool.name),
+    ).toEqual(["web_search"]);
+
+    params.visibleSendPolicy = undefined;
     params.disableMessageTool = true;
     expect(shouldForceMessageTool(params)).toBe(false);
 

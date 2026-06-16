@@ -1,4 +1,5 @@
 // Plugin runtime types describe activated plugin capabilities exposed to core execution.
+import type { VisibleSendPolicy } from "../../agents/visible-send-tool-policy.js";
 import type { PluginRuntimeCore, RuntimeLogger } from "./types-core.js";
 
 export type { RuntimeLogger };
@@ -13,6 +14,8 @@ export type SubagentRunParams = {
   provider?: string;
   model?: string;
   extraSystemPrompt?: string;
+  toolsAllow?: string[];
+  visibleSendPolicy?: VisibleSendPolicy;
   lane?: string;
   lightContext?: boolean;
   deliver?: boolean;

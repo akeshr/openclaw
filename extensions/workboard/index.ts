@@ -3,6 +3,7 @@ import { definePluginEntry } from "./api.js";
 import { registerWorkboardGatewayMethods } from "./runtime-api.js";
 import { registerWorkboardCommand } from "./src/command.js";
 import { WorkboardStore } from "./src/store.js";
+import { registerWorkboardSubagentHooks } from "./src/subagent-hooks.js";
 import { createWorkboardTools } from "./src/tools.js";
 
 export default definePluginEntry({
@@ -13,6 +14,7 @@ export default definePluginEntry({
     const store = WorkboardStore.openSqlite();
     registerWorkboardGatewayMethods({ api, store });
     registerWorkboardCommand({ api, store });
+    registerWorkboardSubagentHooks({ api, store });
     api.registerCli(
       async ({ program }) => {
         const { registerWorkboardCli } = await import("./src/cli.js");

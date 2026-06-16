@@ -5,6 +5,7 @@ import {
   buildAutoAddedToolSearchControlNamesForAllowlistCheck,
   buildCallableToolNamesForEmptyAllowlistCheck,
   buildToolSearchRunPlan,
+  shouldEnableCatalogControlToolsForAllowlist,
 } from "./attempt.tool-search-run-plan.js";
 
 describe("buildCallableToolNamesForEmptyAllowlistCheck", () => {
@@ -58,6 +59,52 @@ describe("buildAutoAddedToolSearchControlNamesForAllowlistCheck", () => {
         controlNames: ["tool_search_code", "tool_search"],
       }),
     ).toEqual(new Set(["tool_search"]));
+  });
+});
+
+describe("shouldEnableCatalogControlToolsForAllowlist", () => {
+  it("keeps catalog controls enabled for unrestricted allowlists", () => {
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        controlNames: ["tool_search", "tool_call"],
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        toolsAllow: ["*"],
+        controlNames: ["tool_search", "tool_call"],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not auto-add catalog controls for unrelated narrow allowlists", () => {
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        toolsAllow: ["workboard_complete", "workboard_block"],
+        controlNames: ["exec", "wait"],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        toolsAllow: ["workboard_complete", "workboard_block"],
+        controlNames: ["tool_search", "tool_describe", "tool_call"],
+      }),
+    ).toBe(false);
+  });
+
+  it("enables catalog controls only when explicitly allowed by policy", () => {
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        toolsAllow: ["tool_search"],
+        controlNames: ["tool_search", "tool_describe", "tool_call"],
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnableCatalogControlToolsForAllowlist({
+        toolsAllow: ["exec"],
+        controlNames: ["exec", "wait"],
+      }),
+    ).toBe(true);
   });
 });
 

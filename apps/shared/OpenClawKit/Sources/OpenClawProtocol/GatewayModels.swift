@@ -761,6 +761,7 @@ public struct AgentParams: Codable, Sendable {
     public let modelrun: Bool?
     public let promptmode: AnyCodable?
     public let extrasystemprompt: String?
+    public let toolsallow: [String]?
     public let bootstrapcontextmode: AnyCodable?
     public let bootstrapcontextrunkind: AnyCodable?
     public let acpturnsource: String?
@@ -803,6 +804,7 @@ public struct AgentParams: Codable, Sendable {
         modelrun: Bool?,
         promptmode: AnyCodable?,
         extrasystemprompt: String?,
+        toolsallow: [String]?,
         bootstrapcontextmode: AnyCodable?,
         bootstrapcontextrunkind: AnyCodable?,
         acpturnsource: String?,
@@ -844,6 +846,7 @@ public struct AgentParams: Codable, Sendable {
         self.modelrun = modelrun
         self.promptmode = promptmode
         self.extrasystemprompt = extrasystemprompt
+        self.toolsallow = toolsallow
         self.bootstrapcontextmode = bootstrapcontextmode
         self.bootstrapcontextrunkind = bootstrapcontextrunkind
         self.acpturnsource = acpturnsource
@@ -887,6 +890,7 @@ public struct AgentParams: Codable, Sendable {
         case modelrun = "modelRun"
         case promptmode = "promptMode"
         case extrasystemprompt = "extraSystemPrompt"
+        case toolsallow = "toolsAllow"
         case bootstrapcontextmode = "bootstrapContextMode"
         case bootstrapcontextrunkind = "bootstrapContextRunKind"
         case acpturnsource = "acpTurnSource"

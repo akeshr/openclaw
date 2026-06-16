@@ -14,6 +14,7 @@ import {
 } from "../infra/heartbeat-wake.js";
 import type { SessionBindingRecord } from "../infra/outbound/session-binding-service.js";
 import { peekSystemEvents, resetSystemEventsForTest } from "../infra/system-events.js";
+import * as hookRunnerGlobal from "../plugins/hook-runner-global.js";
 import type { ParsedAgentSessionKey } from "../routing/session-key.js";
 import { withTempDir } from "../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../test-utils/env.js";
@@ -2165,6 +2166,60 @@ describe("task-registry", () => {
         warnings: 1,
       });
       expect(summary.byCode.lost).toBe(1);
+    });
+  });
+
+  it("emits subagent_ended when subagent-backed cli tasks are marked lost", async () => {
+    await withTaskRegistryTempDir(async () => {
+      resetTaskRegistryMemoryForTest();
+      configureTaskRegistryMaintenance({ runtimeAuthoritative: true });
+      const runSubagentEnded = vi.fn(async () => {});
+      const hookSpy = vi.spyOn(hookRunnerGlobal, "getGlobalHookRunner").mockReturnValue({
+        hasHooks: (hookName: string) => hookName === "subagent_ended",
+        runSubagentEnded,
+      } as never);
+
+      const task = createTaskRecord({
+        runtime: "cli",
+        ownerKey: "agent:main:main",
+        requesterSessionKey: "agent:main:main",
+        scopeKind: "session",
+        childSessionKey: "agent:marshal:subagent:workboard-default-card-1",
+        runId: "run-workboard-lost",
+        sourceId: "run-workboard-lost",
+        task: "Workboard worker",
+        status: "running",
+        deliveryStatus: "not_applicable",
+        notifyPolicy: "silent",
+      });
+      setTaskTimingById({
+        taskId: task.taskId,
+        lastEventAt: Date.now() - 10 * 60_000,
+      });
+
+      await runTaskRegistryMaintenance();
+
+      expect(runSubagentEnded).toHaveBeenCalledTimes(1);
+      expect(runSubagentEnded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetSessionKey: "agent:marshal:subagent:workboard-default-card-1",
+          targetKind: "subagent",
+          reason: "subagent-error",
+          runId: "run-workboard-lost",
+          outcome: "error",
+          error: "backing session missing",
+        }),
+        expect.objectContaining({
+          runId: "run-workboard-lost",
+          childSessionKey: "agent:marshal:subagent:workboard-default-card-1",
+          requesterSessionKey: "agent:main:main",
+        }),
+      );
+      expectRecordFields(requireTaskById(task.taskId), {
+        status: "lost",
+        error: "backing session missing",
+      });
+      hookSpy.mockRestore();
     });
   });
 

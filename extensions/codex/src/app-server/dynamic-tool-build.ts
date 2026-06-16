@@ -52,6 +52,7 @@ const CODEX_NATIVE_SANDBOX_TOOL_REQUIREMENTS = [
   "apply_patch",
 ] as const;
 const CODEX_MEMORY_FLUSH_DYNAMIC_TOOL_ALLOW = new Set(["read", "write"]);
+const CODEX_VISIBLE_SEND_DYNAMIC_TOOL_NAMES = new Set(["message", "sessions_send"]);
 
 /** Runtime inputs needed to derive the exact Codex dynamic tool surface for a turn. */
 export type DynamicToolBuildParams = {
@@ -194,6 +195,7 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     enabled: input.profilerEnabled,
   });
   const modelHasVision = params.model.input?.includes("image") ?? false;
+  const toolsAllow = includeForcedCodexDynamicToolAllow(params.toolsAllow, params);
   const agentDir = params.agentDir ?? resolveAgentDir(params.config ?? {}, input.sessionAgentId);
   const createOpenClawCodingTools =
     openClawCodingToolsFactoryForTests ??
@@ -266,11 +268,14 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     modelHasVision,
     requireExplicitMessageTarget:
       params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
-    sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+    sourceReplyDeliveryMode:
+      params.visibleSendPolicy === "deny" ? "automatic" : params.sourceReplyDeliveryMode,
     disableMessageTool: params.disableMessageTool,
+    visibleSendPolicy: params.visibleSendPolicy,
     forceMessageTool: shouldForceMessageTool(params),
     enableHeartbeatTool: params.trigger === "heartbeat" || input.forceHeartbeatTool === true,
     forceHeartbeatTool: params.trigger === "heartbeat" || input.forceHeartbeatTool === true,
+    runtimeToolAllowlist: toolsAllow,
     onYield: (message) => {
       input.onYieldDetected();
       input.onCodexAppServerEvent?.({
@@ -304,8 +309,12 @@ export async function buildDynamicTools(input: DynamicToolBuildParams) {
     hasInboundImages: (params.images?.length ?? 0) > 0,
   });
   toolBuildStages.mark("vision-filtering");
-  const toolsAllow = includeForcedCodexDynamicToolAllow(params.toolsAllow, params);
-  const filteredTools = filterCodexDynamicToolsForAllowlist(visionFilteredTools, toolsAllow);
+  const visibleSendFilteredTools = filterCodexDynamicToolsByVisibleSendPolicy(
+    visionFilteredTools,
+    params,
+  );
+  toolBuildStages.mark("visible-send-policy");
+  const filteredTools = filterCodexDynamicToolsForAllowlist(visibleSendFilteredTools, toolsAllow);
   toolBuildStages.mark("allowlist-filter");
   const normalizedTools = normalizeAgentRuntimeTools({
     runtimePlan: input.ignoreRuntimePlan ? undefined : params.runtimePlan,
@@ -366,21 +375,61 @@ export function includeForcedCodexDynamicToolAllow(
   toolsAllow: string[] | undefined,
   params: EmbeddedRunAttemptParams,
 ): string[] | undefined {
-  if (toolsAllow === undefined || hasWildcardCodexToolsAllow(toolsAllow)) {
-    return toolsAllow;
+  const effectiveToolsAllow = filterCodexVisibleSendToolAllow(toolsAllow, params);
+  if (
+    visibleSendPolicyDenies(params) ||
+    effectiveToolsAllow === undefined ||
+    hasWildcardCodexToolsAllow(effectiveToolsAllow)
+  ) {
+    return effectiveToolsAllow;
   }
   const forcedToolNames = shouldForceMessageTool(params) ? ["message"] : [];
   if (forcedToolNames.length === 0) {
-    return toolsAllow;
+    return effectiveToolsAllow;
   }
-  if (toolsAllow.length === 0) {
+  if (effectiveToolsAllow.length === 0) {
     return forcedToolNames;
   }
-  const normalized = new Set(toolsAllow.map((name) => normalizeCodexDynamicToolName(name)));
+  const normalized = new Set(
+    effectiveToolsAllow.map((name) => normalizeCodexDynamicToolName(name)),
+  );
   const missingToolNames = forcedToolNames.filter(
     (toolName) => !normalized.has(normalizeCodexDynamicToolName(toolName)),
   );
-  return missingToolNames.length === 0 ? toolsAllow : [...toolsAllow, ...missingToolNames];
+  return missingToolNames.length === 0
+    ? effectiveToolsAllow
+    : [...effectiveToolsAllow, ...missingToolNames];
+}
+
+function visibleSendPolicyDenies(params: EmbeddedRunAttemptParams): boolean {
+  return params.visibleSendPolicy === "deny";
+}
+
+function isCodexVisibleSendDynamicToolName(toolName: string): boolean {
+  return CODEX_VISIBLE_SEND_DYNAMIC_TOOL_NAMES.has(normalizeCodexDynamicToolName(toolName));
+}
+
+export function filterCodexDynamicToolsByVisibleSendPolicy<T extends { name: string }>(
+  tools: readonly T[],
+  params: EmbeddedRunAttemptParams,
+): T[] {
+  if (!visibleSendPolicyDenies(params)) {
+    return [...tools];
+  }
+  return tools.filter((tool) => !isCodexVisibleSendDynamicToolName(tool.name));
+}
+
+function filterCodexVisibleSendToolAllow(
+  toolsAllow: string[] | undefined,
+  params: EmbeddedRunAttemptParams,
+): string[] | undefined {
+  if (!visibleSendPolicyDenies(params) || toolsAllow === undefined || toolsAllow.length === 0) {
+    return toolsAllow;
+  }
+  if (hasWildcardCodexToolsAllow(toolsAllow)) {
+    return toolsAllow;
+  }
+  return toolsAllow.filter((toolName) => !isCodexVisibleSendDynamicToolName(toolName));
 }
 
 /** Decides whether Codex native code mode can own shell/file tools for this turn. */
@@ -704,6 +753,8 @@ export function hasWildcardCodexToolsAllow(toolsAllow: string[]): boolean {
 /** Forces message delivery through the message tool when the source channel requires it. */
 export function shouldForceMessageTool(params: EmbeddedRunAttemptParams): boolean {
   return (
-    params.disableMessageTool !== true && params.sourceReplyDeliveryMode === "message_tool_only"
+    params.visibleSendPolicy !== "deny" &&
+    params.disableMessageTool !== true &&
+    params.sourceReplyDeliveryMode === "message_tool_only"
   );
 }

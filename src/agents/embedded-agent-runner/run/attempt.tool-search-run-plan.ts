@@ -79,6 +79,21 @@ export function buildAutoAddedToolSearchControlNamesForAllowlistCheck(params: {
   );
 }
 
+export function shouldEnableCatalogControlToolsForAllowlist(params: {
+  toolsAllow?: string[];
+  controlNames: readonly string[];
+}): boolean {
+  if (!params.toolsAllow) {
+    return true;
+  }
+  if (params.toolsAllow.length === 0) {
+    return false;
+  }
+  return params.controlNames.some((controlName) =>
+    isToolAllowedByPolicyName(controlName, { allow: params.toolsAllow ?? [] }),
+  );
+}
+
 function collectExplicitlyAllowedClientToolNames(params: {
   clientTools?: CollectAllowedToolNamesParams["clientTools"];
   explicitAllowlistSources: Array<{ entries: string[] }>;

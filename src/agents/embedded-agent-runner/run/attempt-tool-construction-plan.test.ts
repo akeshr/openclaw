@@ -76,6 +76,28 @@ describe("applyEmbeddedAttemptToolsAllow", () => {
     ]);
   });
 
+  it("does not force or preserve visible-send tools when the run denies visible sends", () => {
+    const tools = [{ name: "workboard_heartbeat" }, { name: "message" }, { name: "sessions_send" }];
+    const toolsAllow = mergeForcedEmbeddedAttemptToolsAllow(
+      ["workboard_heartbeat", "message", "sessions_send"],
+      {
+        forceMessageTool: true,
+        visibleSendPolicy: "deny",
+      },
+    );
+
+    expect(toolsAllow).toEqual(["workboard_heartbeat"]);
+    expect(applyEmbeddedAttemptToolsAllow(tools, toolsAllow).map((tool) => tool.name)).toEqual([
+      "workboard_heartbeat",
+    ]);
+    expect(
+      mergeForcedEmbeddedAttemptToolsAllow([], {
+        forceMessageTool: true,
+        visibleSendPolicy: "deny",
+      }),
+    ).toEqual([]);
+  });
+
   it("normalizes explicit toolsAllow entries before filtering", () => {
     const tools = [{ name: "cron" }, { name: "read" }, { name: "message" }];
 
@@ -218,6 +240,28 @@ describe("resolveEmbeddedAttemptToolConstructionPlan", () => {
           includeShellTools: false,
           includeChannelTools: false,
           includeOpenClawTools: true,
+          includePluginTools: false,
+        },
+      },
+    );
+  });
+
+  it("keeps explicit no-tools runs empty when visible sends are denied", () => {
+    expectConstructionPlan(
+      resolveEmbeddedAttemptToolConstructionPlan({
+        toolsAllow: [],
+        forceMessageTool: true,
+        visibleSendPolicy: "deny",
+      }),
+      {
+        constructTools: false,
+        includeCoreTools: false,
+        runtimeToolAllowlist: [],
+        coding: {
+          includeBaseCodingTools: false,
+          includeShellTools: false,
+          includeChannelTools: false,
+          includeOpenClawTools: false,
           includePluginTools: false,
         },
       },

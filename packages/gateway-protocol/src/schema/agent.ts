@@ -211,6 +211,7 @@ export const AgentParamsSchema = Type.Object(
       Type.Union([Type.Literal("full"), Type.Literal("minimal"), Type.Literal("none")]),
     ),
     extraSystemPrompt: Type.Optional(Type.String()),
+    toolsAllow: Type.Optional(Type.Array(Type.String())),
     bootstrapContextMode: Type.Optional(
       Type.Union([Type.Literal("full"), Type.Literal("lightweight")]),
     ),
@@ -228,6 +229,7 @@ export const AgentParamsSchema = Type.Object(
       Type.Union([Type.Literal("automatic"), Type.Literal("message_tool_only")]),
     ),
     disableMessageTool: Type.Optional(Type.Boolean()),
+    visibleSendPolicy: Type.Optional(Type.Union([Type.Literal("allow"), Type.Literal("deny")])),
     voiceWakeTrigger: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
     label: Type.Optional(SessionLabelString),

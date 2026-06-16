@@ -437,6 +437,7 @@ import {
 import { buildEmbeddedAttemptToolRunContext } from "./attempt.tool-run-context.js";
 import {
   buildToolSearchRunPlan,
+  shouldEnableCatalogControlToolsForAllowlist,
   TOOL_SEARCH_CONTROL_ALLOWLIST_NAMES,
 } from "./attempt.tool-search-run-plan.js";
 import { resolveAttemptTranscriptPolicy } from "./attempt.transcript-policy.js";
@@ -1157,18 +1158,26 @@ export async function runEmbeddedAttempt(
       });
     };
     const corePluginToolStages = createEmbeddedRunStageTracker();
+    const denyVisibleSendTools = params.visibleSendPolicy === "deny";
+    const effectiveSourceReplyDeliveryMode = denyVisibleSendTools
+      ? "automatic"
+      : params.sourceReplyDeliveryMode;
     const forceDirectMessageTool =
-      params.forceMessageTool === true || params.sourceReplyDeliveryMode === "message_tool_only";
+      !denyVisibleSendTools &&
+      (params.forceMessageTool === true ||
+        effectiveSourceReplyDeliveryMode === "message_tool_only");
     const toolsAllowWithForcedRuntimeTools = mergeForcedEmbeddedAttemptToolsAllow(
       params.toolsAllow,
       {
         forceMessageTool: forceDirectMessageTool,
+        visibleSendPolicy: params.visibleSendPolicy,
       },
     );
     const toolConstructionPlan = resolveEmbeddedAttemptToolConstructionPlan({
       disableTools: params.disableTools,
       isRawModelRun,
       toolsAllow: toolsAllowWithForcedRuntimeTools,
+      visibleSendPolicy: params.visibleSendPolicy,
     });
     const toolsEnabled = supportsModelTools(params.model);
     const codeModeConfig = resolveCodeModeConfig(params.config, sessionAgentId);
@@ -1180,17 +1189,27 @@ export async function runEmbeddedAttempt(
           sessionKey: sandboxSessionKey,
         });
     const toolSearchConfig = resolveToolSearchConfig(toolSearchRuntimeConfig);
+    const codeModeControlToolsAllowedForRun = shouldEnableCatalogControlToolsForAllowlist({
+      toolsAllow: toolsAllowWithForcedRuntimeTools,
+      controlNames: [CODE_MODE_EXEC_TOOL_NAME, CODE_MODE_WAIT_TOOL_NAME],
+    });
+    const toolSearchControlToolsAllowedForRun = shouldEnableCatalogControlToolsForAllowlist({
+      toolsAllow: toolsAllowWithForcedRuntimeTools,
+      controlNames: TOOL_SEARCH_CONTROL_ALLOWLIST_NAMES,
+    });
     const codeModeControlsEnabledForRun =
       toolsEnabled &&
       params.disableTools !== true &&
       !isRawModelRun &&
       params.toolsAllow?.length !== 0 &&
+      codeModeControlToolsAllowedForRun &&
       codeModeConfig.enabled;
     const toolSearchControlsEnabledForRun =
       toolsEnabled &&
       params.disableTools !== true &&
       !isRawModelRun &&
       params.toolsAllow?.length !== 0 &&
+      toolSearchControlToolsAllowedForRun &&
       !codeModeControlsEnabledForRun &&
       toolSearchConfig.enabled;
     const effectiveToolsAllow =
@@ -1204,8 +1223,8 @@ export async function runEmbeddedAttempt(
         : toolsAllowWithForcedRuntimeTools;
     const localModelLeanPreserveToolNames = resolveLocalModelLeanPreserveToolNames({
       toolNames: effectiveToolsAllow,
-      forceMessageTool: params.forceMessageTool,
-      sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+      forceMessageTool: !denyVisibleSendTools && params.forceMessageTool,
+      sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
     });
     const shouldConstructTools =
       toolConstructionPlan.constructTools ||
@@ -1296,9 +1315,10 @@ export async function runEmbeddedAttempt(
             modelHasVision: params.model.input?.includes("image") ?? false,
             requireExplicitMessageTarget:
               params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
-            sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+            sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
             inboundEventKind: params.currentInboundEventKind,
             disableMessageTool: params.disableMessageTool,
+            visibleSendPolicy: params.visibleSendPolicy,
             forceMessageTool: params.forceMessageTool,
             enableHeartbeatTool: params.enableHeartbeatTool,
             forceHeartbeatTool: params.forceHeartbeatTool,
@@ -1642,7 +1662,8 @@ export async function runEmbeddedAttempt(
         })
       : [];
     const directoryRequiredToolNames =
-      params.forceMessageTool === true || params.sourceReplyDeliveryMode === "message_tool_only"
+      !denyVisibleSendTools &&
+      (params.forceMessageTool === true || effectiveSourceReplyDeliveryMode === "message_tool_only")
         ? ["message"]
         : [];
     const directoryHydratedToolNames =
@@ -1967,7 +1988,7 @@ export async function runEmbeddedAttempt(
         workspaceNotes: workspaceNotes?.length ? workspaceNotes : undefined,
         reactionGuidance,
         promptMode: effectivePromptMode,
-        sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+        sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
         silentReplyPromptMode: params.silentReplyPromptMode,
         acpEnabled: isAcpRuntimeSpawnAvailable({
           config: params.config,
@@ -2414,7 +2435,7 @@ export async function runEmbeddedAttempt(
       let didDeliverSourceReplyViaMessageTool = false;
       installMessageToolOnlyTerminalHook({
         agent: activeSession.agent,
-        sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+        sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
         onDeliveredSourceReply: () => {
           didDeliverSourceReplyViaMessageTool = true;
         },
@@ -3415,7 +3436,7 @@ export async function runEmbeddedAttempt(
           toolResultFormat: params.toolResultFormat,
           shouldEmitToolResult: params.shouldEmitToolResult,
           shouldEmitToolOutput: params.shouldEmitToolOutput,
-          sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+          sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
           hasDeliveredMessageToolOnlySourceReply: () => didDeliverSourceReplyViaMessageTool,
           onAgentToolResult: params.onAgentToolResult,
           onToolResult: params.onToolResult,
@@ -3556,7 +3577,7 @@ export async function runEmbeddedAttempt(
         isStreaming: () => activeSession.isStreaming,
         isCompacting: () => subscription.isCompacting(),
         supportsTranscriptCommitWait: true,
-        sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+        sourceReplyDeliveryMode: effectiveSourceReplyDeliveryMode,
         cancel: abortActiveRunExternally,
         abort: (reason) => abortActiveRunExternally(reason),
       };

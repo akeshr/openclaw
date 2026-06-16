@@ -2404,7 +2404,8 @@ export async function runCodexAppServerAttempt(
       activeSteeringQueue.queue(text, optionsLocal),
     isStreaming: () => !completed && !runAbortController.signal.aborted,
     isCompacting: () => projectorRef.current?.isCompacting() ?? false,
-    sourceReplyDeliveryMode: params.sourceReplyDeliveryMode,
+    sourceReplyDeliveryMode:
+      params.visibleSendPolicy === "deny" ? "automatic" : params.sourceReplyDeliveryMode,
     cancel: () => runAbortController.abort("cancelled"),
     abort: () => runAbortController.abort("aborted"),
   };

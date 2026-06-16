@@ -204,6 +204,14 @@ When an agent creates an isolated reminder from an active chat, OpenClaw stores 
 
 Implicit announce delivery uses configured channel allowlists to validate and reroute stale targets. DM pairing-store approvals are not fallback automation recipients; set `delivery.to` or configure the channel `allowFrom` entry when a scheduled job should proactively send to a DM.
 
+### Audit-only quiet-hours checkpoint visibility
+
+Cron can record a default-off, audit-only visibility obligation for a narrow class of owner checkpoint jobs. The job must explicitly include `checkpointVisibility: { mode: "audit-only", idempotencyKey, ownerSessionKey, ... }`, and it is accepted only for `sessionTarget: "main"`, `wakeMode: "now"`, `payload.kind: "systemEvent"` jobs.
+
+When such a run is skipped because the heartbeat reports `quiet-hours`, cron preserves the existing run outcome (`lastRunStatus: "skipped"`, `lastError: "quiet-hours"`, `lastDeliveryStatus: "not-requested"`) and appends a pending obligation to job state. This does not send a message, retry the run, replay the queued event, reschedule the job, bypass quiet hours, or generate a post-quiet-hours summary.
+
+Operators can inspect and close obligations through the Gateway RPC methods `cron.checkpointVisibility.list` and `cron.checkpointVisibility.close`. Phase 1 close states are `manual-delivered`, `suppressed`, and `blocked`; each close requires evidence such as a message id, report path, evidence hash, current status reference, or supersession proof. `summary-delivered` is intentionally not a Phase 1 state.
+
 ## Output language
 
 Cron jobs do not infer a reply language from channel, locale, or previous

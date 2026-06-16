@@ -20,6 +20,7 @@ import {
 } from "./openclaw-tools.plugin-context.js";
 import { applyPluginToolDeliveryDefaults } from "./plugin-tool-delivery-defaults.js";
 import type { AnyAgentTool } from "./tools/common.js";
+import type { VisibleSendPolicy } from "./visible-send-tool-policy.js";
 
 type ResolveOpenClawPluginToolsOptions = OpenClawPluginToolOptions & {
   pluginToolAllowlist?: string[];
@@ -35,6 +36,7 @@ type ResolveOpenClawPluginToolsOptions = OpenClawPluginToolOptions & {
   requesterAgentIdOverride?: string;
   requireExplicitMessageTarget?: boolean;
   disableMessageTool?: boolean;
+  visibleSendPolicy?: VisibleSendPolicy;
   disablePluginTools?: boolean;
   authProfileStore?: AuthProfileStore;
 };

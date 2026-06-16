@@ -340,6 +340,56 @@ describe("workboard tools", () => {
     expect(promoted[0]?.metadata?.claim?.token).toBe("[redacted]");
   });
 
+  it("keeps model-visible dispatch data-only and leaves todo cards idle", async () => {
+    const keyed = createMemoryStore();
+    const api = {
+      runtime: {
+        state: {
+          openKeyedStore: vi.fn(() => keyed),
+        },
+      },
+    } as unknown as OpenClawPluginApi;
+    const store = new WorkboardStore(keyed);
+    const tools = new Map(
+      createWorkboardTools({
+        api,
+        store,
+        context: { agentId: "main" } as never,
+      }).map((tool) => [tool.name, tool]),
+    );
+    const todo = await store.create({
+      title: "Pending worker",
+      status: "todo",
+      priority: "urgent",
+      agentId: "main",
+    });
+    const ready = await store.create({
+      title: "Ready worker",
+      status: "ready",
+      priority: "normal",
+      agentId: "main",
+    });
+
+    const dispatch = readPayload(await tools.get("workboard_dispatch")?.execute("call-1", {}));
+
+    expect(dispatch).not.toHaveProperty("started");
+    expect(dispatch).not.toHaveProperty("startFailures");
+    expect(dispatch).toMatchObject({ count: 0 });
+    const todoAfter = await store.get(todo.id);
+    expect(todoAfter).toMatchObject({ status: "todo" });
+    expect(todoAfter?.metadata?.claim).toBeUndefined();
+    expect(todoAfter?.sessionKey).toBeUndefined();
+    expect(todoAfter?.runId).toBeUndefined();
+    expect(todoAfter?.execution).toBeUndefined();
+    const readyAfter = await store.get(ready.id);
+    expect(readyAfter).toMatchObject({ status: "ready" });
+    expect(readyAfter?.metadata?.claim).toBeUndefined();
+    expect(readyAfter?.metadata?.automation?.dispatchCount).toBe(1);
+    expect(readyAfter?.sessionKey).toBeUndefined();
+    expect(readyAfter?.runId).toBeUndefined();
+    expect(readyAfter?.execution).toBeUndefined();
+  });
+
   it("exposes board lifecycle, decomposition, runs, and notification tools", async () => {
     const keyed = createMemoryStore();
     const api = {

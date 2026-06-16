@@ -93,7 +93,9 @@ The dashboard refreshes task status from the Gateway task ledger and matches
 tasks back to cards by task id, run id, or linked session key. If a task is
 queued or running, the card lifecycle shows active task state. If the task
 finishes, fails, times out, or is cancelled, the card lifecycle moves toward
-review or blocked status using the same lifecycle sync as linked sessions.
+review or blocked status. Ordinary linked sessions follow the linked-session
+rules below; Workboard-dispatched workers have the stricter worker protocol in
+the worker lifecycle section.
 
 ## Agent coordination
 
@@ -203,7 +205,11 @@ card.
 When a worker starts successfully, Workboard stores the session key, run id,
 engine, mode, model label, status, and worker log on the card. The session key
 is deterministic for the board and card, which makes repeated dispatches route
-back to the same worker lane instead of creating unrelated sessions.
+to the same worker lane. A dispatched worker is not considered complete merely
+because the linked subagent exits successfully. If the worker exits without
+calling `workboard_complete` or `workboard_block`, Workboard blocks the card,
+clears the claim, records a failed attempt, and marks `workerProtocol` as
+violated so Marshal or an operator must review the blocker explicitly.
 
 If a worker cannot be started after a card is claimed, Workboard blocks the
 card, clears the claim, records the run-start failure, and appends a worker log

@@ -8,6 +8,7 @@ import {
 import { normalizeTrimmedStringList } from "@openclaw/normalization-core/string-normalization";
 import { sanitizeAgentId } from "../routing/session-key.js";
 import { isRecord } from "../utils.js";
+import { normalizeCronCheckpointVisibilityPolicy } from "./checkpoint-visibility.js";
 import {
   TimeoutSecondsFieldSchema,
   TrimmedNonEmptyStringFieldSchema,
@@ -549,6 +550,17 @@ export function normalizeCronJobInput(
 
   if (isRecord(base.delivery)) {
     next.delivery = coerceDelivery(base.delivery);
+  }
+
+  if ("checkpointVisibility" in base) {
+    const policy = normalizeCronCheckpointVisibilityPolicy(base.checkpointVisibility);
+    if (policy) {
+      next.checkpointVisibility = policy;
+    } else if (base.checkpointVisibility === null) {
+      next.checkpointVisibility = null;
+    } else {
+      delete next.checkpointVisibility;
+    }
   }
 
   if (options.applyDefaults) {

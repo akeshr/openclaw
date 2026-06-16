@@ -15,10 +15,21 @@ import {
   markCronJobActive,
   type CronActiveJobMarker,
 } from "../active-jobs.js";
+import {
+  closeCronCheckpointVisibilityObligation,
+  listCronCheckpointVisibilityObligations,
+  normalizeCronCheckpointVisibilityCloseInput,
+  type CronCheckpointVisibilityListOptions,
+} from "../checkpoint-visibility.js";
 import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
 import { createCronRunDiagnosticsFromError } from "../run-diagnostics.js";
 import { createCronExecutionId } from "../run-id.js";
-import type { CronJob, CronJobCreate, CronJobPatch } from "../types.js";
+import type {
+  CronCheckpointVisibilityCloseInput,
+  CronJob,
+  CronJobCreate,
+  CronJobPatch,
+} from "../types.js";
 import { normalizeCronRunErrorText } from "./execution-errors.js";
 import { failureNotificationDeliveryFromJobState } from "./failure-alerts.js";
 import {
@@ -335,6 +346,57 @@ export async function readJob(state: CronServiceState, id: string) {
   return await locked(state, async () => {
     await ensureLoadedForRead(state);
     return state.store?.jobs.find((job) => job.id === id);
+  });
+}
+
+/** Lists audit-only quiet-hours checkpoint visibility obligations without advancing schedules. */
+export async function listCheckpointVisibilityObligations(
+  state: CronServiceState,
+  opts?: CronCheckpointVisibilityListOptions,
+) {
+  return await locked(state, async () => {
+    await ensureLoadedForRead(state);
+    return listCronCheckpointVisibilityObligations(state.store?.jobs ?? [], opts);
+  });
+}
+
+/** Closes one pending checkpoint visibility obligation with operator evidence. */
+export async function closeCheckpointVisibilityObligation(
+  state: CronServiceState,
+  input: CronCheckpointVisibilityCloseInput,
+) {
+  return await locked(state, async () => {
+    await ensureLoaded(state, { skipRecompute: true });
+    const closeInput = normalizeCronCheckpointVisibilityCloseInput(input);
+    const matches = listCronCheckpointVisibilityObligations(state.store?.jobs ?? [], {
+      ...(closeInput.jobId ? { jobId: closeInput.jobId } : {}),
+      idempotencyKey: closeInput.idempotencyKey,
+    });
+    if (matches.length === 0) {
+      throw new Error(`unknown checkpoint visibility obligation: ${closeInput.idempotencyKey}`);
+    }
+    if (matches.length > 1 && !closeInput.jobId) {
+      throw new Error(
+        `ambiguous checkpoint visibility obligation: ${closeInput.idempotencyKey}; pass jobId`,
+      );
+    }
+    const match = matches[0];
+    if (!match) {
+      throw new Error(`unknown checkpoint visibility obligation: ${closeInput.idempotencyKey}`);
+    }
+    const job = findJobOrThrow(state, match.jobId);
+    const obligation = closeCronCheckpointVisibilityObligation({
+      job,
+      input: closeInput,
+      nowMs: state.deps.nowMs(),
+    });
+    job.updatedAtMs = obligation.updatedAtMs;
+    await persist(state, { stateOnly: true });
+    return {
+      jobId: job.id,
+      ...(job.name ? { jobName: job.name } : {}),
+      obligation,
+    };
   });
 }
 
@@ -939,6 +1001,7 @@ async function finishPreparedManualRun(
           diagnostics: coreResult.diagnostics,
           delivered: coreResult.delivered,
           provider: coreResult.provider,
+          sessionKey: coreResult.sessionKey,
           startedAt,
           endedAt,
         },

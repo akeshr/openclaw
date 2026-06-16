@@ -11,6 +11,11 @@ import {
   normalizeToolList,
   normalizeToolName,
 } from "../../tool-policy.js";
+import {
+  filterVisibleSendToolAllowlist,
+  type VisibleSendPolicy,
+  visibleSendPolicyDenies,
+} from "../../visible-send-tool-policy.js";
 
 const BASE_CODING_TOOL_FACTORY_NAMES = new Set(["edit", "read", "write"]);
 
@@ -132,20 +137,22 @@ export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
  */
 export function mergeForcedEmbeddedAttemptToolsAllow(
   toolsAllow: string[] | undefined,
-  params: { forceMessageTool?: boolean },
+  params: { forceMessageTool?: boolean; visibleSendPolicy?: VisibleSendPolicy },
 ): string[] | undefined {
+  const effectiveToolsAllow = filterVisibleSendToolAllowlist(toolsAllow, params.visibleSendPolicy);
   if (
+    visibleSendPolicyDenies(params.visibleSendPolicy) ||
     !params.forceMessageTool ||
-    toolsAllow === undefined ||
-    hasWildcardToolAllowlist(toolsAllow)
+    effectiveToolsAllow === undefined ||
+    hasWildcardToolAllowlist(effectiveToolsAllow)
   ) {
-    return toolsAllow;
+    return effectiveToolsAllow;
   }
-  if (toolsAllow.length === 0) {
+  if (effectiveToolsAllow.length === 0) {
     return ["message"];
   }
-  const normalized = new Set(toolsAllow.map((entry) => normalizeToolName(entry)));
-  return normalized.has("message") ? toolsAllow : [...toolsAllow, "message"];
+  const normalized = new Set(effectiveToolsAllow.map((entry) => normalizeToolName(entry)));
+  return normalized.has("message") ? effectiveToolsAllow : [...effectiveToolsAllow, "message"];
 }
 
 function resolveCodingToolConstructionPlanForAllowlist(
@@ -195,6 +202,7 @@ export function resolveEmbeddedAttemptToolConstructionPlan(params: {
   isRawModelRun?: boolean;
   toolsAllow?: string[];
   forceMessageTool?: boolean;
+  visibleSendPolicy?: VisibleSendPolicy;
 }): {
   constructTools: boolean;
   includeCoreTools: boolean;
@@ -210,6 +218,7 @@ export function resolveEmbeddedAttemptToolConstructionPlan(params: {
   }
   const toolsAllow = mergeForcedEmbeddedAttemptToolsAllow(params.toolsAllow, {
     forceMessageTool: params.forceMessageTool,
+    visibleSendPolicy: params.visibleSendPolicy,
   });
   const codingToolConstructionPlan = resolveCodingToolConstructionPlanForAllowlist(toolsAllow);
   const includeCoreTools =

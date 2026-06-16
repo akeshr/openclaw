@@ -78,6 +78,31 @@ function createCronContext(currentJob?: CronJob) {
       add: vi.fn(async () => ({ id: "cron-1" })),
       update: vi.fn(async () => ({ id: "cron-1" })),
       remove: vi.fn(async () => ({ ok: true, removed: true })),
+      listCheckpointVisibilityObligations: vi.fn(async () => []),
+      closeCheckpointVisibilityObligation: vi.fn(async () => ({
+        jobId: "cron-1",
+        obligation: {
+          idempotencyKey: "wave17:checkpoint",
+          status: "manual-delivered",
+          source: {
+            jobId: "cron-1",
+            runId: "cron:cron-1:1",
+            runAtMs: 1,
+            sessionTarget: "main",
+            wakeMode: "now",
+            payloadKind: "systemEvent",
+            payloadHash: "hash",
+            ownerSessionKey: "agent:jarvis:whatsapp:direct:+917258067800",
+          },
+          observed: {
+            runStatus: "skipped",
+            lastError: "quiet-hours",
+            deliveryStatus: "not-requested",
+          },
+          createdAtMs: 1,
+          updatedAtMs: 2,
+        },
+      })),
       enqueueRun: vi.fn(async () => ({ ok: true, enqueued: true, runId: "run-1" })),
       getDefaultAgentId: vi.fn(() => "main"),
       getJob: vi.fn(() => currentJob),
@@ -117,6 +142,14 @@ async function invokeCronAdd(params: Record<string, unknown>) {
 
 async function invokeCronGet(params: Record<string, unknown>, currentJob?: CronJob) {
   return await invokeCron("cron.get", params, { currentJob });
+}
+
+async function invokeCronCheckpointVisibilityList(params: Record<string, unknown>) {
+  return await invokeCron("cron.checkpointVisibility.list", params);
+}
+
+async function invokeCronCheckpointVisibilityClose(params: Record<string, unknown>) {
+  return await invokeCron("cron.checkpointVisibility.close", params);
 }
 
 async function invokeCronUpdate(params: Record<string, unknown>, currentJob?: CronJob) {
@@ -1072,6 +1105,59 @@ describe("cron method validation", () => {
         text: "ping",
       });
       expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    });
+  });
+
+  describe("checkpoint visibility obligations", () => {
+    it("lists obligations through the operator RPC surface", async () => {
+      const { context, respond } = await invokeCronCheckpointVisibilityList({
+        jobId: "cron-1",
+        status: "pending",
+      });
+      expect(context.cron.listCheckpointVisibilityObligations).toHaveBeenCalledWith({
+        jobId: "cron-1",
+        status: "pending",
+      });
+      expect(respond).toHaveBeenCalledWith(true, { obligations: [] }, undefined);
+    });
+
+    it("closes obligations only with schema-valid Phase 1 evidence", async () => {
+      const { context, respond } = await invokeCronCheckpointVisibilityClose({
+        jobId: "cron-1",
+        idempotencyKey: "wave17:checkpoint",
+        status: "manual-delivered",
+        decidedBy: "jarvis",
+        messageId: "wa-msg-1",
+      });
+      expect(context.cron.closeCheckpointVisibilityObligation).toHaveBeenCalledWith({
+        jobId: "cron-1",
+        idempotencyKey: "wave17:checkpoint",
+        status: "manual-delivered",
+        decidedBy: "jarvis",
+        messageId: "wa-msg-1",
+      });
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          jobId: "cron-1",
+          obligation: expect.objectContaining({ status: "manual-delivered" }),
+        }),
+        undefined,
+      );
+    });
+
+    it("rejects summary-delivered close requests before service mutation", async () => {
+      const { context, respond } = await invokeCronCheckpointVisibilityClose({
+        idempotencyKey: "wave17:checkpoint",
+        status: "summary-delivered",
+        decidedBy: "jarvis",
+        messageId: "wa-msg-1",
+      });
+      expect(context.cron.closeCheckpointVisibilityObligation).not.toHaveBeenCalled();
+      expectResponseError(respond, {
+        code: "INVALID_REQUEST",
+        messageIncludes: "cron.checkpointVisibility.close",
+      });
     });
   });
 });
