@@ -126,6 +126,12 @@ clears the claim, and records the failure in card execution and worker-log
 metadata. This keeps failed starts visible instead of silently returning the
 card to the queue.
 
+For admin/diagnostic proof of that failure path, Gateway dispatch accepts
+`diagnosticStartFailure: true` when called through `openclaw gateway call
+workboard.cards.dispatch`. Only cards labelled `diagnostic-start-failure` are
+affected by the diagnostic flag; normal dispatch and the `openclaw workboard
+dispatch` CLI path do not trigger the fixture.
+
 If no explicit Gateway target is provided and the local Gateway is unavailable
 or does not expose the Workboard dispatch method yet, the CLI falls back to
 data-only dispatch against local Workboard state. Data-only dispatch can still

@@ -1,6 +1,6 @@
 // Workboard tests cover dispatcher plugin behavior.
 import { describe, expect, it, vi } from "vitest";
-import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
+import { DIAGNOSTIC_START_FAILURE_LABEL, dispatchAndStartWorkboardCards } from "./dispatcher.js";
 import { WorkboardStore, type PersistedWorkboardCard, type WorkboardKeyedStore } from "./store.js";
 
 function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
@@ -199,6 +199,54 @@ describe("dispatchAndStartWorkboardCards", () => {
         comments: [
           expect.objectContaining({
             body: expect.stringContaining("Dispatcher could not start worker"),
+          }),
+        ],
+      },
+    });
+    expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
+  });
+
+  it("supports an explicit diagnostic start-failure fixture", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Diagnostic failure worker",
+      status: "ready",
+      boardId: "diagnostics",
+      labels: [DIAGNOSTIC_START_FAILURE_LABEL],
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "should-not-start" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: {
+        now: 10,
+        boardId: "diagnostics",
+        maxStarts: 1,
+        allowDiagnosticStartFailure: true,
+      },
+    });
+
+    expect(result.started).toEqual([]);
+    expect(result.startFailures).toEqual([
+      expect.objectContaining({
+        cardId: card.id,
+        error: expect.stringContaining("diagnostic start failure requested"),
+      }),
+    ]);
+    expect(run).not.toHaveBeenCalled();
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      status: "blocked",
+      metadata: {
+        comments: [
+          expect.objectContaining({
+            body: expect.stringContaining("Dispatcher could not start worker"),
+          }),
+        ],
+        workerLogs: [
+          expect.objectContaining({
+            level: "error",
+            message: expect.stringContaining("diagnostic start failure requested"),
           }),
         ],
       },

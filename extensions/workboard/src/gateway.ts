@@ -389,11 +389,16 @@ export function registerWorkboardGatewayMethods(params: {
           requestParams && typeof requestParams === "object" && "boardId" in requestParams
             ? requestParams.boardId
             : undefined;
+        const allowDiagnosticStartFailure =
+          requestParams &&
+          typeof requestParams === "object" &&
+          requestParams.diagnosticStartFailure === true;
         const result = await dispatchAndStartWorkboardCards({
           store,
           subagent: api.runtime.subagent,
           options: {
             boardId: typeof boardId === "string" ? boardId : undefined,
+            ...(allowDiagnosticStartFailure ? { allowDiagnosticStartFailure } : {}),
           },
         });
         respond(true, {

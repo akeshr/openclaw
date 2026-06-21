@@ -7,6 +7,7 @@ import type { WorkboardCard, WorkboardExecution } from "./types.js";
 const DEFAULT_DISPATCH_MAX_STARTS = 3;
 const DEFAULT_DISPATCH_OWNER = "workboard-dispatcher";
 const DEFAULT_DISPATCH_MODEL = "default";
+export const DIAGNOSTIC_START_FAILURE_LABEL = "diagnostic-start-failure";
 
 export type WorkboardSubagentRuntime = Pick<PluginRuntime["subagent"], "run">;
 
@@ -17,6 +18,7 @@ export type WorkboardDispatchStartOptions = {
   ownerId?: string;
   boardId?: string;
   now?: number;
+  allowDiagnosticStartFailure?: boolean;
 };
 
 export type WorkboardStartedRun = {
@@ -86,6 +88,16 @@ function buildExecution(params: {
     startedAt: params.now,
     updatedAt: params.now,
   };
+}
+
+function shouldTriggerDiagnosticStartFailure(
+  card: WorkboardCard,
+  options: WorkboardDispatchStartOptions | undefined,
+): boolean {
+  return (
+    options?.allowDiagnosticStartFailure === true &&
+    card.labels.includes(DIAGNOSTIC_START_FAILURE_LABEL)
+  );
 }
 
 function buildWorkerPrompt(params: {
@@ -189,6 +201,11 @@ export async function dispatchAndStartWorkboardCards(params: {
         ttlSeconds: card.metadata?.automation?.maxRuntimeSeconds,
       });
       token = claimed.token;
+      if (shouldTriggerDiagnosticStartFailure(claimed.card, params.options)) {
+        throw new Error(
+          `diagnostic start failure requested by card label ${DIAGNOSTIC_START_FAILURE_LABEL}`,
+        );
+      }
       const context = await params.store.buildWorkerContext(card.id);
       const run = await params.subagent.run({
         sessionKey,
@@ -237,6 +254,18 @@ export async function dispatchAndStartWorkboardCards(params: {
       startFailures.push({ cardId: card.id, title: card.title, error: message });
       if (!token) {
         continue;
+      }
+      try {
+        await params.store.addWorkerLog(
+          card.id,
+          {
+            level: "error",
+            message: `Dispatcher could not start worker: ${message}`,
+          },
+          { ownerId, token },
+        );
+      } catch {
+        // Preserve the start failure even if evidence logging fails.
       }
       try {
         await params.store.block(

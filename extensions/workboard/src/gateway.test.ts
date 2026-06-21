@@ -1,6 +1,7 @@
 // Workboard tests cover gateway plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
+import { DIAGNOSTIC_START_FAILURE_LABEL } from "./dispatcher.js";
 import { registerWorkboardGatewayMethods } from "./gateway.js";
 import { WorkboardStore, type PersistedWorkboardCard, type WorkboardKeyedStore } from "./store.js";
 
@@ -259,6 +260,65 @@ describe("workboard gateway methods", () => {
         sessionKey: `subagent:workboard-default-${card.id}`,
       }),
     );
+  });
+
+  it("can trigger diagnostic start-failure proof through gateway dispatch params", async () => {
+    type RegisteredMethod = {
+      handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
+      opts: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[2];
+    };
+    const methods = new Map<string, RegisteredMethod>();
+    const run = vi.fn().mockResolvedValue({ runId: "should-not-start" });
+    const api = {
+      runtime: {
+        state: {
+          openKeyedStore: vi.fn(() => createMemoryStore()),
+        },
+        subagent: { run },
+      },
+      registerGatewayMethod: vi.fn(
+        (method: string, handler: RegisteredMethod["handler"], opts: RegisteredMethod["opts"]) => {
+          methods.set(method, { handler, opts });
+        },
+      ),
+    } as unknown as OpenClawPluginApi;
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Diagnostic failure worker",
+      status: "ready",
+      boardId: "diagnostics",
+      labels: [DIAGNOSTIC_START_FAILURE_LABEL],
+    });
+
+    registerWorkboardGatewayMethods({ api, store });
+
+    const respond = vi.fn();
+    await methods.get("workboard.cards.dispatch")?.handler({
+      params: { boardId: "diagnostics", diagnosticStartFailure: true },
+      respond,
+    } as never);
+
+    expect(respond.mock.calls[0]?.[0]).toBe(true);
+    expect(respond.mock.calls[0]?.[1]).toMatchObject({
+      started: [],
+      startFailures: [
+        expect.objectContaining({
+          cardId: card.id,
+          error: expect.stringContaining("diagnostic start failure requested"),
+        }),
+      ],
+    });
+    expect(run).not.toHaveBeenCalled();
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      status: "blocked",
+      metadata: {
+        comments: [
+          expect.objectContaining({
+            body: expect.stringContaining("Dispatcher could not start worker"),
+          }),
+        ],
+      },
+    });
   });
 
   it("claims, heartbeats, and bulk-updates cards through gateway methods", async () => {
