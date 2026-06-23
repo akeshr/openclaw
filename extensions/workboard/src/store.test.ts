@@ -426,6 +426,79 @@ describe("WorkboardStore", () => {
     );
   });
 
+  it("emits terminal notifications for fresh lifecycle execution sync", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000);
+      const store = new WorkboardStore(createMemoryStore(), {
+        subscriptions: createMemoryStore<PersistedWorkboardNotificationSubscription>(),
+      });
+      const execution = {
+        id: "exec-1",
+        kind: "agent-session" as const,
+        engine: "codex" as const,
+        mode: "autonomous" as const,
+        status: "running" as const,
+        model: "openai/gpt-5.5",
+        sessionKey: "agent:main:dashboard:1",
+        runId: "run-1",
+        startedAt: 500,
+        updatedAt: 500,
+      };
+      const card = await store.create({
+        title: "Terminal lifecycle sync",
+        boardId: "ops",
+        status: "running",
+        sessionKey: execution.sessionKey,
+        runId: execution.runId,
+        execution,
+      });
+      const subscription = await store.subscribeNotifications({
+        boardId: "ops",
+        cardId: card.id,
+        target: "session:operator",
+        eventKinds: ["failed"],
+      });
+
+      vi.setSystemTime(2000);
+      const blocked = await store.update(card.id, {
+        status: "blocked",
+        execution: { ...execution, status: "blocked", updatedAt: 2000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 2000 },
+      });
+
+      expect(blocked.metadata?.notifications).toEqual([
+        expect.objectContaining({
+          kind: "failed",
+          message: "Workboard execution blocked.",
+          sessionKey: execution.sessionKey,
+          runId: execution.runId,
+          createdAt: 2000,
+        }),
+      ]);
+      await expect(store.notificationEvents({ subscriptionId: subscription.id })).resolves.toEqual({
+        subscription: expect.objectContaining({ id: subscription.id }),
+        events: [
+          expect.objectContaining({
+            kind: "failed",
+            sessionKey: execution.sessionKey,
+            runId: execution.runId,
+          }),
+        ],
+      });
+
+      vi.setSystemTime(3000);
+      const repeated = await store.update(card.id, {
+        status: "blocked",
+        execution: { ...execution, status: "blocked", updatedAt: 3000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 3000 },
+      });
+      expect(repeated.metadata?.notifications).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps creation status from stale lifecycle patches", async () => {
     vi.useFakeTimers();
     try {
