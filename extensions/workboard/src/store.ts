@@ -2314,6 +2314,62 @@ export class WorkboardStore {
     return this.lastNotificationSequence;
   }
 
+  private appendLifecycleTerminalNotification(
+    existing: WorkboardCard,
+    metadata: WorkboardMetadata,
+    execution: WorkboardExecution | undefined,
+    now: number,
+  ): WorkboardMetadata {
+    if (!execution) {
+      return metadata;
+    }
+    const attemptStatus = executionAttemptStatus(execution);
+    const kind: WorkboardNotificationKind | undefined =
+      attemptStatus === "succeeded"
+        ? "completed"
+        : attemptStatus === "blocked" || attemptStatus === "failed"
+          ? "failed"
+          : undefined;
+    if (!kind) {
+      return metadata;
+    }
+    const sessionKey = execution.sessionKey ?? cardSessionKey(existing);
+    const runId = execution.runId ?? cardRunId(existing);
+    const notifications = metadata.notifications ?? [];
+    const alreadyExists = notifications.some((notification) => {
+      if (notification.kind !== kind) {
+        return false;
+      }
+      if (runId) {
+        return (
+          notification.runId === runId ||
+          (!notification.runId && Boolean(sessionKey) && notification.sessionKey === sessionKey)
+        );
+      }
+      if (sessionKey) {
+        return notification.sessionKey === sessionKey;
+      }
+      return !notification.runId && !notification.sessionKey;
+    });
+    if (alreadyExists) {
+      return metadata;
+    }
+    const notification: WorkboardNotification = {
+      id: randomUUID(),
+      kind,
+      createdAt: now,
+      sequence: this.nextNotificationSequence(now),
+      message:
+        kind === "completed" ? "Workboard execution completed." : "Workboard execution blocked.",
+      ...(sessionKey ? { sessionKey } : {}),
+      ...(runId ? { runId } : {}),
+    };
+    return removeUndefinedMetadataFields({
+      ...metadata,
+      notifications: [...notifications, notification].slice(-MAX_CARD_NOTIFICATIONS),
+    });
+  }
+
   async list(options: WorkboardListOptions = {}): Promise<WorkboardCard[]> {
     const boardId = normalizeBoardId(options.boardId);
     const entries = await this.store.entries();
@@ -2763,9 +2819,16 @@ export class WorkboardStore {
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
     });
-    next.metadata = trimMetadataToBudget(
-      syncExecutionAttemptMetadata(next.metadata ?? {}, execution, now),
-    );
+    let nextMetadata = syncExecutionAttemptMetadata(next.metadata ?? {}, execution, now);
+    if (hasFreshLifecycleStatusSource) {
+      nextMetadata = this.appendLifecycleTerminalNotification(
+        existing,
+        nextMetadata,
+        execution,
+        now,
+      );
+    }
+    next.metadata = trimMetadataToBudget(nextMetadata);
     next.events = appendEvent(next, updateEvent(existing, next), now);
     if (options.enforceStatusHolds && effectivePatch.status !== undefined) {
       await this.assertActiveStatusAllowed(existing, next, now);
