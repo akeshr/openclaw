@@ -139,6 +139,9 @@ Workboard also exposes optional agent tools for board-aware workflows:
   state. Event reads are replay-safe; the advance tool moves the durable cursor
   so callers can resume without losing or double-reading completed, failed, or
   stale card events.
+- `workboard_mark_stale` marks a scoped card stale and records bounded stale
+  metadata so `completed`/`failed`/`stale` subscriptions can wake from a native
+  Workboard event path instead of ad hoc observer state.
 - `workboard_boards`, `workboard_stats`, `workboard_promote`,
   `workboard_reassign`, `workboard_reclaim`, `workboard_comment`,
   `workboard_proof`, `workboard_unblock`, and `workboard_dispatch` let an agent

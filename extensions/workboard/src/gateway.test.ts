@@ -63,6 +63,7 @@ describe("workboard gateway methods", () => {
       "workboard.cards.reclaim",
       "workboard.cards.complete",
       "workboard.cards.block",
+      "workboard.cards.markStale",
       "workboard.cards.unblock",
       "workboard.cards.bulk",
       "workboard.cards.diagnostics",
@@ -180,6 +181,29 @@ describe("workboard gateway methods", () => {
           comments: [expect.objectContaining({ body: "Waiting on CI" })],
         },
         events: expect.arrayContaining([expect.objectContaining({ kind: "comment_added" })]),
+      },
+    });
+
+    const staleRespond = vi.fn();
+    await methods.get("workboard.cards.markStale")?.handler({
+      params: {
+        id: cardId,
+        reason: "Linked session has not reported recent activity.",
+        lastSessionUpdatedAt: 1234,
+      },
+      respond: staleRespond,
+    } as never);
+
+    expect(staleRespond.mock.calls[0]?.[0]).toBe(true);
+    expect(staleRespond.mock.calls[0]?.[1]).toMatchObject({
+      card: {
+        metadata: {
+          stale: {
+            lastSessionUpdatedAt: 1234,
+            reason: "Linked session has not reported recent activity.",
+          },
+        },
+        events: expect.arrayContaining([expect.objectContaining({ kind: "stale" })]),
       },
     });
   });

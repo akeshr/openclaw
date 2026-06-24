@@ -403,6 +403,33 @@ export function createWorkboardTools(params: {
       },
     },
     {
+      name: "workboard_mark_stale",
+      label: "Workboard Mark Stale",
+      description:
+        "Mark a scoped Workboard card stale so completed/failed/stale notification subscriptions can wake safely.",
+      parameters: Type.Object(
+        {
+          id: cardIdField(),
+          token: claimTokenField(),
+          reason: Type.Optional(Type.String({ description: "Reason shown on the stale event." })),
+          lastSessionUpdatedAt: Type.Optional(
+            Type.Number({ description: "Last linked-session activity time in epoch ms." }),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        return redactedRawCardResult(
+          await store.markStale(id, {
+            ...scope,
+            reason: record.reason,
+            lastSessionUpdatedAt: record.lastSessionUpdatedAt,
+          }),
+        );
+      },
+    },
+    {
       name: "workboard_release",
       label: "Workboard Release",
       description:
