@@ -182,6 +182,12 @@ export type WorkboardHeartbeatInput = {
   ownerId?: unknown;
   note?: unknown;
 };
+export type WorkboardMarkStaleInput = {
+  token?: unknown;
+  ownerId?: unknown;
+  reason?: unknown;
+  lastSessionUpdatedAt?: unknown;
+};
 export type WorkboardBulkInput = {
   ids?: unknown;
   patch?: unknown;
@@ -3510,6 +3516,39 @@ export class WorkboardStore {
       };
     });
     return card;
+  }
+
+  async markStale(
+    id: string,
+    input: WorkboardMarkStaleInput = {},
+    scope: WorkboardMutationScope | null | undefined = input,
+  ): Promise<WorkboardCard> {
+    return await this.enqueueMutation(async () => {
+      const existing = await this.get(id);
+      if (!existing) {
+        throw new Error(`card not found: ${id}`);
+      }
+      assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+      const now = Date.now();
+      const reason =
+        normalizeBoundedString(input.reason, undefined, 240, "stale reason") ??
+        "Session has not reported recent activity.";
+      const lastSessionUpdatedAt =
+        normalizeTimestamp(input.lastSessionUpdatedAt, 0) ||
+        existing.metadata?.claim?.lastHeartbeatAt ||
+        existing.execution?.updatedAt ||
+        existing.updatedAt;
+      return await this.updateCard(id, {
+        metadata: {
+          ...existing.metadata,
+          stale: {
+            detectedAt: now,
+            lastSessionUpdatedAt,
+            reason,
+          },
+        },
+      });
+    });
   }
 
   async releaseClaim(

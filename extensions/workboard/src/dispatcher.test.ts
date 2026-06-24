@@ -146,6 +146,50 @@ describe("dispatchAndStartWorkboardCards", () => {
     });
   });
 
+  it("scopes owner running slots to the selected board", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    await store.create({
+      title: "Old Marshal worker on another board",
+      status: "running",
+      priority: "urgent",
+      agentId: "marshal",
+      boardId: "old-mission",
+      execution: {
+        id: "old-worker:codex",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "default",
+        sessionKey: "agent:marshal:subagent:old-worker",
+        runId: "old-run",
+        startedAt: 1,
+        updatedAt: 1,
+      },
+    });
+    const fresh = await store.create({
+      title: "Fresh board Marshal worker",
+      status: "ready",
+      priority: "urgent",
+      agentId: "marshal",
+      boardId: "fresh-mission",
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-fresh" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 3, boardId: "fresh-mission" },
+    });
+
+    expect(result.started).toEqual([expect.objectContaining({ cardId: fresh.id })]);
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      sessionKey: `agent:marshal:subagent:workboard-fresh-mission-${fresh.id}`,
+      lane: `workboard:fresh-mission:${fresh.id}`,
+    });
+  });
+
   it("keeps claimed review cards in the owner running slot", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const review = await store.create({
