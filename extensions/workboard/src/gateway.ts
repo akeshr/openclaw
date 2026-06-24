@@ -331,6 +331,20 @@ export function registerWorkboardGatewayMethods(params: {
   );
 
   api.registerGatewayMethod(
+    "workboard.cards.markStale",
+    async ({ params: requestParams, respond }) => {
+      try {
+        respond(true, {
+          card: redactClaimToken(await store.markStale(readId(requestParams), requestParams, null)),
+        });
+      } catch (error) {
+        respondError(respond, error);
+      }
+    },
+    { scope: WRITE_SCOPE },
+  );
+
+  api.registerGatewayMethod(
     "workboard.cards.unblock",
     async ({ params: requestParams, respond }) => {
       try {

@@ -92,6 +92,24 @@ describe("workboard tools", () => {
       metadata: { comments: [expect.objectContaining({ body: "alive" })] },
     });
 
+    const stale = readPayload(
+      await byName.get("workboard_mark_stale")?.execute("call-2b", {
+        id: "card-1",
+        token,
+        reason: "No recent linked-session activity.",
+        lastSessionUpdatedAt: 1234,
+      }),
+    );
+    expect(stale).toMatchObject({
+      metadata: {
+        stale: {
+          lastSessionUpdatedAt: 1234,
+          reason: "No recent linked-session activity.",
+        },
+      },
+      events: expect.arrayContaining([expect.objectContaining({ kind: "stale" })]),
+    });
+
     const read = readPayload(
       await byName.get("workboard_read")?.execute("call-3", { id: "card-1" }),
     );
@@ -147,6 +165,12 @@ describe("workboard tools", () => {
     await expect(
       otherTools.get("workboard_claim")?.execute("call-2", { id: card.id }),
     ).rejects.toThrow(/already claimed/);
+    await expect(
+      otherTools.get("workboard_mark_stale")?.execute("call-3", {
+        id: card.id,
+        reason: "No recent linked-session activity.",
+      }),
+    ).rejects.toThrow(/claimed by main/);
   });
 
   it("requires claim scope before creating or linking dependencies against claimed cards", async () => {

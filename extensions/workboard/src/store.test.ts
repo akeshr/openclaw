@@ -2452,6 +2452,39 @@ describe("WorkboardStore", () => {
     });
   });
 
+  it("marks cards stale through a scoped lifecycle mutation", async () => {
+    const store = new WorkboardStore(createMemoryStore(), {
+      subscriptions: createMemoryStore<PersistedWorkboardNotificationSubscription>(),
+    });
+    const card = await store.create({ title: "Linked session card", boardId: "ops" });
+    const subscription = await store.subscribeNotifications({
+      boardId: "ops",
+      target: "session:operator",
+      eventKinds: ["stale"],
+    });
+
+    const stale = await store.markStale(card.id, {
+      reason: "Linked session has not reported recent activity.",
+      lastSessionUpdatedAt: 1234,
+    });
+
+    expect(stale.metadata?.stale).toMatchObject({
+      lastSessionUpdatedAt: 1234,
+      reason: "Linked session has not reported recent activity.",
+    });
+    expect(stale.events?.at(-1)).toMatchObject({ kind: "stale" });
+    await expect(store.notificationEvents({ subscriptionId: subscription.id })).resolves.toEqual({
+      subscription: expect.objectContaining({ id: subscription.id }),
+      events: [
+        expect.objectContaining({
+          id: expect.stringContaining("stale:"),
+          kind: "stale",
+          message: "Linked session has not reported recent activity.",
+        }),
+      ],
+    });
+  });
+
   it("marks triage cards as orchestration candidates during dispatch", async () => {
     const boards = createMemoryStore<PersistedWorkboardBoard>();
     const store = new WorkboardStore(createMemoryStore(), { boards });

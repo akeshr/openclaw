@@ -136,16 +136,12 @@ function sortReadyCards(a: WorkboardCard, b: WorkboardCard): number {
   );
 }
 
-function selectStartableCards(
-  cards: WorkboardCard[],
-  limit: number,
-  candidates: WorkboardCard[] = cards,
-): WorkboardCard[] {
+function selectStartableCards(candidates: WorkboardCard[], limit: number): WorkboardCard[] {
   if (limit <= 0) {
     return [];
   }
   const runningByOwner = new Map<string, number>();
-  for (const card of cards) {
+  for (const card of candidates) {
     const consumesOwnerSlot =
       card.status === "running" ||
       Boolean(card.metadata?.claim) ||
@@ -188,10 +184,9 @@ export async function dispatchAndStartWorkboardCards(params: {
   const started: WorkboardStartedRun[] = [];
   const startFailures: WorkboardStartFailure[] = [];
   const model = params.options?.model?.trim() || DEFAULT_DISPATCH_MODEL;
-  const cards = await params.store.list();
   const candidates = await params.store.list({ boardId });
 
-  for (const card of selectStartableCards(cards, maxStarts, candidates)) {
+  for (const card of selectStartableCards(candidates, maxStarts)) {
     const ownerId = params.options?.ownerId?.trim() || card.agentId || DEFAULT_DISPATCH_OWNER;
     const sessionKey = buildSessionKey(card);
     let token = "";
