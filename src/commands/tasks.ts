@@ -128,6 +128,27 @@ type SessionRegistryMaintenanceSummary = {
   stores: SessionRegistryMaintenanceStoreSummary[];
 };
 
+type TasksMaintenanceScope = "all" | "tasks";
+
+function parseTasksMaintenanceScope(value: string | undefined): TasksMaintenanceScope | null {
+  if (!value || value === "all") {
+    return "all";
+  }
+  if (value === "tasks") {
+    return "tasks";
+  }
+  return null;
+}
+
+function createSkippedSessionMaintenanceSummary(): SessionRegistryMaintenanceSummary {
+  return {
+    retentionMs: SESSION_REGISTRY_RETENTION_MS,
+    runningCronJobs: 0,
+    pruned: 0,
+    stores: [],
+  };
+}
+
 function readRunningCronJobIds(): Set<string> {
   try {
     const cronStorePath = resolveCronJobsStorePath(getRuntimeConfig().cron?.store);
@@ -554,10 +575,17 @@ export async function tasksAuditCommand(
 
 /** Previews or applies task, task-flow, and backing session-registry maintenance. */
 export async function tasksMaintenanceCommand(
-  opts: { json?: boolean; apply?: boolean },
+  opts: { json?: boolean; apply?: boolean; scope?: string },
   runtime: RuntimeEnv,
 ) {
   configureTaskMaintenanceFromConfig();
+  const scope = parseTasksMaintenanceScope(opts.scope);
+  if (!scope) {
+    runtime.error("Invalid tasks maintenance scope. Expected one of: all, tasks.");
+    runtime.exit(1);
+    return;
+  }
+  const includeTaskFlowsAndSessions = scope === "all";
   const auditBefore = getInspectableTaskAuditSummary();
   const flowAuditBefore = getInspectableTaskFlowAuditSummary();
   const taskMaintenance = opts.apply
@@ -566,13 +594,20 @@ export async function tasksMaintenanceCommand(
   // JSON diagnostics explain the task-maintenance decision above, before the
   // separate session-registry sweep can prune backing session rows.
   const diagnostics = opts.json ? getTaskRegistryMaintenanceDiagnostics() : undefined;
-  const flowMaintenance = opts.apply
-    ? await runTaskFlowRegistryMaintenance()
-    : previewTaskFlowRegistryMaintenance();
-  const sessionMaintenance = await runSessionRegistryMaintenance({ apply: Boolean(opts.apply) });
+  const flowMaintenance = includeTaskFlowsAndSessions
+    ? opts.apply
+      ? await runTaskFlowRegistryMaintenance()
+      : previewTaskFlowRegistryMaintenance()
+    : { reconciled: 0, pruned: 0 };
+  const sessionMaintenance = includeTaskFlowsAndSessions
+    ? await runSessionRegistryMaintenance({ apply: Boolean(opts.apply) })
+    : createSkippedSessionMaintenanceSummary();
   const summary = getInspectableTaskRegistrySummary();
   const auditAfter = opts.apply ? getInspectableTaskAuditSummary() : auditBefore;
-  const flowAuditAfter = opts.apply ? getInspectableTaskFlowAuditSummary() : flowAuditBefore;
+  const flowAuditAfter =
+    opts.apply && includeTaskFlowsAndSessions
+      ? getInspectableTaskFlowAuditSummary()
+      : flowAuditBefore;
   const retainedLostAfter = summarizeRetainedLostTaskAuditFindings(
     listTaskAuditFindings({ tasks: reconcileInspectableTasks() }),
   );
@@ -582,6 +617,7 @@ export async function tasksMaintenanceCommand(
       JSON.stringify(
         {
           mode: opts.apply ? "apply" : "preview",
+          scope,
           maintenance: {
             tasks: taskMaintenance,
             taskFlows: flowMaintenance,
@@ -607,7 +643,7 @@ export async function tasksMaintenanceCommand(
 
   runtime.log(
     info(
-      `Tasks maintenance (${opts.apply ? "applied" : "preview"}): tasks ${taskMaintenance.reconciled} reconcile · ${taskMaintenance.recovered} recovered · ${taskMaintenance.cleanupStamped} cleanup stamp · ${taskMaintenance.pruned} prune; task-flows ${flowMaintenance.reconciled} reconcile · ${flowMaintenance.pruned} prune`,
+      `Tasks maintenance (${opts.apply ? "applied" : "preview"}; scope ${scope}): tasks ${taskMaintenance.reconciled} reconcile · ${taskMaintenance.recovered} recovered · ${taskMaintenance.cleanupStamped} cleanup stamp · ${taskMaintenance.pruned} prune; task-flows ${flowMaintenance.reconciled} reconcile · ${flowMaintenance.pruned} prune`,
     ),
   );
   runtime.log(

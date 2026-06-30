@@ -9,11 +9,13 @@ import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.j
 import { resetDetachedTaskLifecycleRuntimeForTests } from "../tasks/detached-task-runtime.js";
 import {
   createManagedTaskFlow as createManagedTaskFlowOrNull,
+  getTaskFlowById,
   resetTaskFlowRegistryForTests,
 } from "../tasks/task-flow-registry.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import {
   createTaskRecord as createTaskRecordOrNull,
+  getTaskById,
   resetTaskRegistryDeliveryRuntimeForTests,
   resetTaskRegistryForTests,
 } from "../tasks/task-registry.js";
