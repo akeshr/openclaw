@@ -14,7 +14,7 @@ import {
   formatSubagentRecoveryWedgedReason,
   isSubagentRecoveryWedgedEntry,
 } from "../agents/subagent-recovery-state.js";
-import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
+import { isTerminalSessionStatus, loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isCronJobActive } from "../cron/active-jobs.js";
@@ -182,6 +182,7 @@ export type TaskRegistryMaintenanceTaskDiagnostic = {
     | "backing_session_present"
     | "cron_runtime_not_authoritative"
     | "lost_grace_pending"
+    | "subagent_session_terminal"
     | "subagent_recovery_wedged";
   detail?: string;
   ageMs: number;
@@ -480,6 +481,10 @@ function hasCliRunIdentity(task: TaskRecord): boolean {
   return [task.sourceId, task.runId].some((candidate) => Boolean(candidate?.trim()));
 }
 
+function isTerminalSubagentSessionEntry(entry: SessionEntry | undefined): boolean {
+  return Boolean(entry && isTerminalSessionStatus(entry.status));
+}
+
 function hasBackingSession(task: TaskRecord, context?: BackingSessionLookupContext): boolean {
   if (task.runtime === "cron") {
     if (!taskRegistryMaintenanceRuntime.isRuntimeAuthoritative()) {
@@ -520,6 +525,9 @@ function hasBackingSession(task: TaskRecord, context?: BackingSessionLookupConte
     if (task.runtime === "subagent" && isSubagentRecoveryWedgedEntry(entry)) {
       return false;
     }
+    if (task.runtime === "subagent" && isTerminalSubagentSessionEntry(entry)) {
+      return false;
+    }
     return Boolean(entry);
   }
 
@@ -534,6 +542,9 @@ function resolveTaskLostError(task: TaskRecord, context?: BackingSessionLookupCo
     const entry = findTaskSessionEntry(task, context);
     if (entry && isSubagentRecoveryWedgedEntry(entry)) {
       return formatSubagentRecoveryWedgedReason(entry);
+    }
+    if (isTerminalSubagentSessionEntry(entry)) {
+      return `subagent child session terminal: ${String(entry?.status ?? "unknown")}`;
     }
   }
   return "backing session missing";
@@ -1015,6 +1026,13 @@ function explainActiveTaskRetention(params: {
         decision: "would_reconcile",
         reason: "subagent_recovery_wedged",
         detail: formatSubagentRecoveryWedgedReason(entry),
+      };
+    }
+    if (isTerminalSubagentSessionEntry(entry)) {
+      return {
+        decision: "would_reconcile",
+        reason: "subagent_session_terminal",
+        detail: `subagent child session terminal: ${String(entry?.status ?? "unknown")}`,
       };
     }
   }

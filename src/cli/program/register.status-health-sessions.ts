@@ -637,6 +637,7 @@ export function registerStatusHealthSessionsCommands(program: Command) {
     .description("Preview or apply tasks and TaskFlow maintenance")
     .option("--json", "Output as JSON", false)
     .option("--apply", "Apply reconciliation, cleanup stamping, and pruning", false)
+    .option("--scope <scope>", "Maintenance scope (all, tasks)", "all")
     .action(async (opts, command) => {
       const parentOpts = command.parent?.opts() as { json?: boolean } | undefined;
       await runCommandWithRuntime(defaultRuntime, async () => {
@@ -645,6 +646,7 @@ export function registerStatusHealthSessionsCommands(program: Command) {
           {
             json: Boolean(opts.json || parentOpts?.json),
             apply: Boolean(opts.apply),
+            scope: opts.scope,
           },
           defaultRuntime,
         );

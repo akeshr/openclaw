@@ -433,6 +433,80 @@ describe("task-registry maintenance issue #60299", () => {
     );
   });
 
+  it("marks stale subagent tasks lost when their child session is terminal", async () => {
+    const childSessionKey = "agent:main:subagent:terminal-child";
+    const staleAt = Date.now() - 45 * 60_000;
+    const task = makeStaleTask({
+      runtime: "subagent",
+      runId: "run-terminal-child",
+      childSessionKey,
+      createdAt: staleAt,
+      startedAt: staleAt,
+      lastEventAt: staleAt,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: {
+        [childSessionKey]: {
+          sessionId: "session-terminal-child",
+          status: "done",
+          updatedAt: staleAt + 1_000,
+          endedAt: staleAt + 1_000,
+        },
+      },
+    });
+
+    expectMaintenanceCounts(previewTaskRegistryMaintenance(), { reconciled: 1 });
+    expect(getTaskRegistryMaintenanceDiagnostics().staleRunningTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: task.taskId,
+        decision: "would_reconcile",
+        reason: "subagent_session_terminal",
+        detail: "subagent child session terminal: done",
+      }),
+    );
+    expectMaintenanceCounts(await runTaskRegistryMaintenance(), { reconciled: 1 });
+    const storedTask = requireTaskRecord(currentTasks, task.taskId);
+    expect(storedTask.status).toBe("lost");
+    expect(storedTask.error).toBe("subagent child session terminal: done");
+  });
+
+  it("keeps stale subagent tasks live while their child session is still running", async () => {
+    const childSessionKey = "agent:main:subagent:running-child";
+    const staleAt = Date.now() - 45 * 60_000;
+    const task = makeStaleTask({
+      runtime: "subagent",
+      runId: "run-running-child",
+      childSessionKey,
+      createdAt: staleAt,
+      startedAt: staleAt,
+      lastEventAt: staleAt,
+    });
+
+    const { currentTasks } = createTaskRegistryMaintenanceHarness({
+      tasks: [task],
+      sessionStore: {
+        [childSessionKey]: {
+          sessionId: "session-running-child",
+          status: "running",
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    expectMaintenanceCounts(previewTaskRegistryMaintenance(), { reconciled: 0 });
+    expect(getTaskRegistryMaintenanceDiagnostics().staleRunningTasks).toContainEqual(
+      expect.objectContaining({
+        taskId: task.taskId,
+        decision: "retained",
+        reason: "backing_session_present",
+      }),
+    );
+    expectMaintenanceCounts(await runTaskRegistryMaintenance(), { reconciled: 0 });
+    expectTaskStatus(currentTasks, task.taskId, "running");
+  });
+
   it("does not mark cron tasks lost when the current process is not the cron runtime authority", async () => {
     const staleAt = Date.now() - 40 * 60_000;
     const task = makeStaleTask({
