@@ -2690,6 +2690,7 @@ export const agentHandlers: GatewayRequestHandlers = {
               preserveUserFacingSessionModelState,
               sourceReplyDeliveryMode: request.sourceReplyDeliveryMode,
               disableMessageTool: request.disableMessageTool,
+              allowGatewaySubagentBinding: taskTrackingMode === "plugin_subagent",
               suppressPromptPersistence:
                 requestedPromptPersistenceSuppression ||
                 shouldSuppressAgentPromptPersistence({

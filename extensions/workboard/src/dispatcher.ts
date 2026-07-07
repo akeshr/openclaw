@@ -1,5 +1,10 @@
 // Workboard plugin module implements dispatcher behavior.
-import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import {
+  formatErrorMessage,
+  isUnavailableSubagentRuntimeFunction,
+  SUBAGENT_RUNTIME_REQUEST_SCOPE_ERROR_CODE,
+  SUBAGENT_RUNTIME_REQUEST_SCOPE_ERROR_MESSAGE,
+} from "openclaw/plugin-sdk/error-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import type { WorkboardCard, WorkboardExecution } from "./types.js";
@@ -17,6 +22,9 @@ export type WorkboardDispatchStartOptions = {
   ownerId?: string;
   boardId?: string;
   now?: number;
+  startWorkers?: boolean;
+  startUnavailableCode?: string;
+  startUnavailableReason?: string;
 };
 
 export type WorkboardStartedRun = {
@@ -32,9 +40,16 @@ export type WorkboardStartFailure = {
   error: string;
 };
 
+export type WorkboardStartUnavailable = {
+  code: string;
+  reason: string;
+  startableCount: number;
+};
+
 export type WorkboardDispatchAndStartResult = WorkboardDispatchResult & {
   started: WorkboardStartedRun[];
   startFailures: WorkboardStartFailure[];
+  startUnavailable?: WorkboardStartUnavailable;
 };
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {
@@ -157,9 +172,36 @@ function selectStartableCards(candidates: WorkboardCard[], limit: number): Workb
   return selected;
 }
 
+function resolveStartUnavailable(params: {
+  options?: WorkboardDispatchStartOptions;
+  startableCount: number;
+  subagent?: WorkboardSubagentRuntime;
+}): WorkboardStartUnavailable | undefined {
+  if (params.startableCount <= 0) {
+    return undefined;
+  }
+  if (params.options?.startWorkers === false) {
+    return {
+      code: params.options.startUnavailableCode ?? "OPENCLAW_WORKBOARD_WORKER_START_UNAVAILABLE",
+      reason:
+        params.options.startUnavailableReason ??
+        "Worker start runtime is unavailable in this dispatch context.",
+      startableCount: params.startableCount,
+    };
+  }
+  if (!params.subagent || isUnavailableSubagentRuntimeFunction(params.subagent.run)) {
+    return {
+      code: SUBAGENT_RUNTIME_REQUEST_SCOPE_ERROR_CODE,
+      reason: SUBAGENT_RUNTIME_REQUEST_SCOPE_ERROR_MESSAGE,
+      startableCount: params.startableCount,
+    };
+  }
+  return undefined;
+}
+
 export async function dispatchAndStartWorkboardCards(params: {
   store: WorkboardStore;
-  subagent: WorkboardSubagentRuntime;
+  subagent?: WorkboardSubagentRuntime;
   options?: WorkboardDispatchStartOptions;
 }): Promise<WorkboardDispatchAndStartResult> {
   const now = params.options?.now ?? Date.now();
@@ -173,8 +215,27 @@ export async function dispatchAndStartWorkboardCards(params: {
   const startFailures: WorkboardStartFailure[] = [];
   const model = params.options?.model?.trim() || DEFAULT_DISPATCH_MODEL;
   const candidates = await params.store.list({ boardId });
+  const startableCards = selectStartableCards(candidates, maxStarts);
+  const startUnavailable = resolveStartUnavailable({
+    options: params.options,
+    startableCount: startableCards.length,
+    subagent: params.subagent,
+  });
 
-  for (const card of selectStartableCards(candidates, maxStarts)) {
+  if (startUnavailable) {
+    return {
+      ...dispatch,
+      started,
+      startFailures,
+      startUnavailable,
+    };
+  }
+  const subagent = params.subagent;
+  if (!subagent) {
+    return { ...dispatch, started, startFailures };
+  }
+
+  for (const card of startableCards) {
     const ownerId = params.options?.ownerId?.trim() || card.agentId || DEFAULT_DISPATCH_OWNER;
     const sessionKey = buildSessionKey(card);
     let token = "";
@@ -185,7 +246,7 @@ export async function dispatchAndStartWorkboardCards(params: {
       });
       token = claimed.token;
       const context = await params.store.buildWorkerContext(card.id);
-      const run = await params.subagent.run({
+      const run = await subagent.run({
         sessionKey,
         message: buildWorkerPrompt({
           card: claimed.card,

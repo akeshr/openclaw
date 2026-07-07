@@ -9,7 +9,10 @@ import {
   generateMusic as generateRuntimeMusic,
   listRuntimeMusicGenerationProviders,
 } from "../../music-generation/runtime.js";
-import { RequestScopedSubagentRuntimeError } from "../../plugin-sdk/error-runtime.js";
+import {
+  markUnavailableSubagentRuntimeFunction,
+  RequestScopedSubagentRuntimeError,
+} from "../../plugin-sdk/error-runtime.js";
 import {
   createLazyRuntimeMethod,
   createLazyRuntimeMethodBinder,
@@ -154,9 +157,9 @@ function createRuntimeModelAuth(): PluginRuntime["modelAuth"] {
 }
 
 function createUnavailableSubagentRuntime(): PluginRuntime["subagent"] {
-  const unavailable = () => {
+  const unavailable = markUnavailableSubagentRuntimeFunction(() => {
     throw new RequestScopedSubagentRuntimeError();
-  };
+  });
   return {
     run: unavailable,
     waitForRun: unavailable,

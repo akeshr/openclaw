@@ -135,6 +135,11 @@ export async function handleWorkboardCommand(params: {
         ...result.startFailures.map(
           (failure) => `failed ${failure.cardId.slice(0, 8)} ${failure.error}`,
         ),
+        ...(result.startUnavailable
+          ? [
+              `start unavailable: ${result.startUnavailable.code} (${result.startUnavailable.startableCount} ready)`,
+            ]
+          : []),
       ].join("\n"),
     };
   }

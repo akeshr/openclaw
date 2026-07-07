@@ -159,6 +159,8 @@ export type AgentCommandOpts = {
   onSessionIdChanged?: (sessionId: string) => void;
   /** Internal one-shot model probe mode: no tools, no workspace/chat prompt policy. */
   modelRun?: boolean;
+  /** Trusted gateway/plugin runs may need SDK subagent bindings in exposed plugin tools. */
+  allowGatewaySubagentBinding?: boolean;
   /** Internal prompt-mode override for trusted local/gateway callsites. */
   promptMode?: PromptMode;
   /** Internal ACP-ready session turn source. Manual spawn turns bypass only the dispatch gate. */

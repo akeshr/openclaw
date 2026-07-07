@@ -115,6 +115,41 @@ export function buildCronEventPrompt(
   );
 }
 
+export function buildWakeEventPrompt(
+  pendingEvents: string[],
+  opts?: {
+    deliverToUser?: boolean;
+    useHeartbeatResponseTool?: boolean;
+  },
+): string {
+  const deliverToUser = opts?.deliverToUser ?? true;
+  const useHeartbeatResponseTool = opts?.useHeartbeatResponseTool ?? false;
+  const eventText = pendingEvents.join("\n").trim();
+  if (!eventText) {
+    if (useHeartbeatResponseTool) {
+      return (
+        "A wake event was triggered, but no event content was found. " +
+        HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS
+      );
+    }
+    return (
+      "A wake event was triggered, but no event content was found. " +
+      "Handle this internally and reply HEARTBEAT_OK when nothing needs user-facing follow-up."
+    );
+  }
+  const base =
+    "A wake event was triggered for this session. The wake content is:\n\n" +
+    eventText +
+    "\n\nHandle this wake as the next trusted system event.";
+  if (!deliverToUser) {
+    return `${base} Do not relay it to the user unless explicitly requested.`;
+  }
+  if (useHeartbeatResponseTool) {
+    return `${base} ${HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS}`;
+  }
+  return `${base} Reply with the appropriate continuation or concise user-facing update.`;
+}
+
 export function buildExecEventPrompt(
   pendingEvents: string[],
   opts?: { deliverToUser?: boolean; useHeartbeatResponseTool?: boolean },

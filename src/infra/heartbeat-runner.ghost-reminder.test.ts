@@ -515,6 +515,69 @@ describe("Ghost reminder bug (issue #13317)", () => {
     });
   });
 
+  it("runs task-based heartbeats for manual wake events even when no task is due", async () => {
+    await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            workspace: tmpDir,
+            heartbeat: {
+              every: "5m",
+              target: "none",
+            },
+          },
+        },
+        session: { store: storePath },
+      };
+      const sessionKey = resolveMainSessionKey(cfg);
+      await fs.writeFile(
+        `${tmpDir}/HEARTBEAT.md`,
+        `tasks:
+  - name: daily-check
+    interval: 1d
+    prompt: "Check status"
+`,
+        "utf-8",
+      );
+      await fs.writeFile(
+        storePath,
+        JSON.stringify({
+          [sessionKey]: {
+            sessionId: "sid",
+            updatedAt: Date.now(),
+            heartbeatTaskState: {
+              "daily-check": 1,
+            },
+          },
+        }),
+      );
+      replySpy.mockResolvedValue({ text: "Handled wake" });
+      enqueueSystemEvent("[JLO][P3][TERMINAL] rootCardId=abc STATUS=REVIEW_READY", {
+        sessionKey,
+      });
+
+      const result = await runHeartbeatOnce({
+        cfg,
+        agentId: "main",
+        source: "manual",
+        intent: "immediate",
+        reason: "wake",
+        deps: {
+          getReplyFromConfig: replySpy,
+        },
+      });
+
+      expect(result.status).toBe("ran");
+      expect(replySpy).toHaveBeenCalledTimes(1);
+      const calledCtx = getFirstReplyContext(replySpy);
+      expect(calledCtx.Provider).toBe("heartbeat");
+      expect(calledCtx.Body).toContain("wake event was triggered");
+      expect(calledCtx.Body).toContain("[JLO][P3][TERMINAL]");
+      expect(calledCtx.Body).not.toContain("Run the following periodic tasks");
+      expect(peekSystemEvents(sessionKey)).toEqual([]);
+    });
+  });
+
   it("does not reuse stale turn-source routing for isolated wake runs", async () => {
     await withTempHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
       const cfg = createLastTargetConfig({ tmpDir, storePath, isolatedSession: true });

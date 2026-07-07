@@ -1698,7 +1698,11 @@ function latestStatusTransitionAt(card: WorkboardCard): number | undefined {
 function shouldSkipPersistedLifecycleStatusUpdate(
   existing: WorkboardCard,
   sourceUpdatedAt: number,
+  nextStatus: WorkboardStatus | undefined,
 ): boolean {
+  if (existing.status === "done" && nextStatus !== undefined && nextStatus !== "done") {
+    return true;
+  }
   const lifecycleStatusSourceUpdatedAt = existing.metadata?.lifecycleStatusSourceUpdatedAt;
   if (lifecycleStatusSourceUpdatedAt !== undefined) {
     return sourceUpdatedAt < lifecycleStatusSourceUpdatedAt;
@@ -2716,14 +2720,36 @@ export class WorkboardStore {
     const hasFreshLifecycleStatusSource =
       lifecycleStatusSourceUpdatedAt !== undefined &&
       lifecycleStatusSourceUpdatedAt !== existingLifecycleStatusSourceUpdatedAt;
+    const lifecyclePatchStatus =
+      patch.status !== undefined ? normalizeStatus(patch.status, existing.status) : undefined;
+    const lifecyclePatchExecution =
+      patch.execution !== undefined ? normalizeExecution(patch.execution) : undefined;
     let effectivePatch = patch;
+    let ignoredLifecycleStatusSource = false;
     if (
       patch.status !== undefined &&
       lifecycleStatusSourceUpdatedAt !== undefined &&
-      shouldSkipPersistedLifecycleStatusUpdate(existing, lifecycleStatusSourceUpdatedAt)
+      shouldSkipPersistedLifecycleStatusUpdate(
+        existing,
+        lifecycleStatusSourceUpdatedAt,
+        lifecyclePatchStatus,
+      )
     ) {
       // Ignore stale lifecycle status writes, but still accept any non-status updates in the patch.
       effectivePatch = { ...patch, status: undefined };
+      ignoredLifecycleStatusSource = true;
+    }
+    if (
+      lifecycleStatusSourceUpdatedAt !== undefined &&
+      existing.status === "done" &&
+      lifecyclePatchExecution !== undefined &&
+      lifecyclePatchExecution.status !== "done"
+    ) {
+      effectivePatch = effectivePatch === patch ? { ...patch } : effectivePatch;
+      effectivePatch.execution = undefined;
+      ignoredLifecycleStatusSource = true;
+    }
+    if (ignoredLifecycleStatusSource) {
       if (patch.metadata && typeof patch.metadata === "object" && !Array.isArray(patch.metadata)) {
         const metadataPatch = patch.metadata as Record<string, unknown>;
         const { lifecycleStatusSourceUpdatedAt: _ignored, ...rest } = metadataPatch;
@@ -3707,6 +3733,21 @@ export class WorkboardStore {
         normalizeBoundedString(input.reason, undefined, 2000, "block reason") ??
         "Workboard card blocked.";
       const metadata = existing.metadata ?? {};
+      if (existing.status === "done") {
+        return await this.updateCard(id, {
+          metadata: {
+            ...metadata,
+            comments: [
+              ...(metadata.comments ?? []),
+              {
+                id: randomUUID(),
+                body: `Ignored block on already-done card: ${reason}`,
+                createdAt: now,
+              },
+            ].slice(-MAX_CARD_COMMENTS),
+          },
+        });
+      }
       const notification: WorkboardNotification = {
         id: randomUUID(),
         kind: "failed",

@@ -1,149 +1,104 @@
 ---
 name: taskflow
-description: "Coordinate multi-step detached tasks as one durable TaskFlow job with owner context, state, waits, and child tasks."
+description: "Manage durable wait/resume flows with owner context, state, child tasks, and revision-safe continuation."
 metadata: { "openclaw": { "emoji": "🪝" } }
 ---
 
 # TaskFlow
 
-Use TaskFlow when a job needs to outlive one prompt or one detached run, but you still want one owner session, one return context, and one place to inspect or resume the work.
+Use when one managed job must persist across prompts, runs, waits, restarts, or
+child tasks.
 
-## When to use it
+TaskFlow is a durable wait/resume primitive. It is not the whole Mission Loop,
+not a Workboard ledger, not worker-start proof, not a notification cursor, and
+not release authority.
 
-- Multi-step background work with one owner
-- Work that waits on detached ACP or subagent tasks
-- Jobs that may need to emit one clear update back to the owner
-- Jobs that need small persisted state between steps
-- Plugin or tool work that must survive restarts and revision conflicts cleanly
+## What TaskFlow Owns
 
-## What TaskFlow owns
+- flow id and owner session/requester context;
+- `currentStep`;
+- `stateJson` as the persisted state bag;
+- `waitJson` and blocked/waiting reason;
+- linked child tasks;
+- revision-checked mutations;
+- terminal state: finished, failed, cancelled, or blocked.
 
-- flow identity
-- owner session and requester origin
-- `currentStep`, `stateJson`, and `waitJson`
-- linked child tasks and their parent flow id
-- finish, fail, cancel, waiting, and blocked state
-- revision tracking for conflict-safe mutations
+It does not own business logic, branching policy, Workboard dispatch/run proof,
+notification cursor handling, or Mission Loop release posture.
 
-It does **not** own branching or business logic. Put that in Lobster, acpx, or the calling code.
+## Composition
 
-## Current runtime shape
+When composed with Mission Loop or Workboard:
 
-Canonical plugin/runtime entrypoint:
+- Mission Loop owns outcome, owners, gates, proof, release posture, and next
+  action.
+- TaskFlow owns managed state and revision-safe continuation.
+- Workboard owns visible cards, dependencies, dispatch, runs, proof, and
+  notification cursors.
+- Sessions/subagents execute work; tasks/task registry record execution.
+- Notifications/cron wake a consumer; they do not resume a flow by themselves.
 
-- `api.runtime.tasks.flow`
-- `api.runtime.taskFlow` still exists as an alias, but `api.runtime.tasks.flow` is the canonical shape
+Link ids deliberately. Store `flowId` on the Workboard side or store
+`boardId`/`cardId`/`sessionKey` in `stateJson`. Source-read both sides before
+claiming resume or terminal proof.
 
-Binding:
+## Runtime Shape
 
-- `api.runtime.tasks.flow.fromToolContext(ctx)` when you already have trusted tool context with `sessionKey`
-- `api.runtime.tasks.flow.bindSession({ sessionKey, requesterOrigin })` when your binding layer already resolved the session and delivery context
+Canonical runtime entrypoint:
 
-Managed-flow lifecycle:
+- `api.runtime.tasks.managedFlows`
+- `api.runtime.tasks.flow` may exist as a compatibility alias.
+- `api.runtime.taskFlow` may exist as a compatibility alias.
+
+Bind from trusted context:
+
+- `api.runtime.tasks.managedFlows.fromToolContext(ctx)`
+- `api.runtime.tasks.managedFlows.bindSession({ sessionKey, requesterOrigin })`
+
+Managed lifecycle:
 
 1. `createManaged(...)`
-2. `runTask(...)`
-3. `setWaiting(...)` when waiting on a person or an external system
-4. `resume(...)` when work can continue
-5. `finish(...)` or `fail(...)`
-6. `requestCancel(...)` or `cancel(...)` when the whole job should stop
+2. `runTask(...)` when TaskFlow owns child task linkage.
+3. `setWaiting(...)` when waiting on a person/system/event.
+4. `resume(...)` when source-read wake evidence allows continuation.
+5. `finish(...)`, `fail(...)`, `requestCancel(...)`, or `cancel(...)`.
 
-## Design constraints
+Use `runTask(...)` instead of manually creating detached work when the child
+task should belong to the flow.
 
-- Use **managed** TaskFlows when your code owns the orchestration.
-- One-task **mirrored** flows are created by core runtime for detached ACP/subagent work; this skill is mainly about managed flows.
-- Treat `stateJson` as the persisted state bag. There is no separate `setFlowOutput` or `appendFlowOutput` API.
-- Every mutating method after creation is revision-checked. Carry forward the latest `flow.revision` after each successful mutation.
-- `runTask(...)` links the child task to the flow. Use it instead of manually creating detached tasks when you want parent orchestration.
-
-## Example shape
-
-```ts
-const taskFlow = api.runtime.tasks.flow.fromToolContext(ctx);
-
-const created = taskFlow.createManaged({
-  controllerId: "my-plugin/inbox-triage",
-  goal: "triage inbox",
-  currentStep: "classify",
-  stateJson: {
-    businessThreads: [],
-    personalItems: [],
-    eodSummary: [],
-  },
-});
-
-const classify = taskFlow.runTask({
-  flowId: created.flowId,
-  runtime: "acp",
-  childSessionKey: "agent:main:subagent:classifier",
-  runId: "inbox-classify-1",
-  task: "Classify inbox messages",
-  status: "running",
-  startedAt: Date.now(),
-  lastEventAt: Date.now(),
-});
-
-if (!classify.created) {
-  throw new Error(classify.reason);
-}
-
-const waiting = taskFlow.setWaiting({
-  flowId: created.flowId,
-  expectedRevision: created.revision,
-  currentStep: "await_business_reply",
-  stateJson: {
-    businessThreads: ["slack:thread-1"],
-    personalItems: [],
-    eodSummary: [],
-  },
-  waitJson: {
-    kind: "reply",
-    channel: "slack",
-    threadKey: "slack:thread-1",
-  },
-});
-
-if (!waiting.applied) {
-  throw new Error(waiting.code);
-}
-
-const resumed = taskFlow.resume({
-  flowId: waiting.flow.flowId,
-  expectedRevision: waiting.flow.revision,
-  status: "running",
-  currentStep: "finalize",
-  stateJson: waiting.flow.stateJson,
-});
-
-if (!resumed.applied) {
-  throw new Error(resumed.code);
-}
-
-taskFlow.finish({
-  flowId: resumed.flow.flowId,
-  expectedRevision: resumed.flow.revision,
-  stateJson: resumed.flow.stateJson,
-});
-```
-
-## Keep conditionals above the runtime
-
-Use the flow runtime for state and task linkage. Keep decisions in the authoring layer:
-
-- `business` -> post to Slack and wait
-- `personal` -> notify the owner now
-- `later` -> append to an end-of-day summary bucket
-
-## Operational pattern
+## Operating Rules
 
 - Store only the minimum state needed to resume.
-- Put human-readable wait reasons in `blockedSummary` or structured wait metadata in `waitJson`.
-- Use `getTaskSummary(flowId)` when the orchestrator needs a compact health view of child work.
-- Use `requestCancel(...)` when a caller wants the flow to stop scheduling immediately.
-- Use `cancel(...)` when you also want active linked child tasks cancelled.
+- Every mutation after creation is revision-checked. Carry forward the latest
+  revision after each successful mutation.
+- Use `stateJson`, not a nonexistent output append API, for persisted state.
+- Keep decision logic in the caller/controller; TaskFlow stores state and links.
+- Treat one-task mirrored flows as runtime-created execution records unless the
+  assignment explicitly makes them the managed flow.
+- `waitJson` alone is not a wake. A consumer must observe a wake source,
+  source-read the relevant systems, then call the revision-safe mutation.
+- A stale resume attempt must fail rather than overwrite newer state.
 
-## Examples
+## Proof
 
-- See `skills/taskflow/examples/inbox-triage.lobster`
-- See `skills/taskflow/examples/pr-intake.lobster`
-- See `skills/taskflow-inbox-triage/SKILL.md` for a concrete routing pattern
+For wait/resume proof, report:
+
+- flow id;
+- owner/controller;
+- current step;
+- latest revision before and after mutation;
+- wait condition and wake source;
+- linked child task/card/session ids when relevant;
+- source-read evidence after wake;
+- `resume(...)` result with expected revision;
+- terminal `finish(...)`, `fail(...)`, cancel, blocked state, or explicit HOLD.
+
+Do not treat a Workboard subscription, cron wake, child session completion, or
+stored `waitJson` alone as a resumed flow.
+
+## Escalation
+
+Read runtime source/docs only when live APIs disagree with this skill, a
+revision or persistence behavior is unclear, or a release/source gate requires
+implementation proof. Put reusable procedure here; keep scenario evidence in
+mission artifacts.

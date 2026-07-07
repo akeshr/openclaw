@@ -1,5 +1,6 @@
 // Workboard tests cover tools plugin behavior.
 import { describe, expect, it, vi } from "vitest";
+import { createPluginRuntime } from "../../../src/plugins/runtime/index.js";
 import type { OpenClawPluginApi } from "../api.js";
 import { WorkboardStore, type PersistedWorkboardCard, type WorkboardKeyedStore } from "./store.js";
 import { createWorkboardTools } from "./tools.js";
@@ -248,11 +249,13 @@ describe("workboard tools", () => {
 
   it("creates dependent cards and completes claimed work through tools", async () => {
     const keyed = createMemoryStore();
+    const run = vi.fn().mockResolvedValue({ runId: "run-child" });
     const api = {
       runtime: {
         state: {
           openKeyedStore: vi.fn(() => keyed),
         },
+        subagent: { run },
       },
     } as unknown as OpenClawPluginApi;
     const store = new WorkboardStore(keyed);
@@ -318,6 +321,49 @@ describe("workboard tools", () => {
 
     const dispatch = readPayload(await tools.get("workboard_dispatch")?.execute("call-5", {}));
     expect(dispatch.promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);
+    expect(dispatch.started).toEqual([expect.objectContaining({ cardId: child.id })]);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("does not claim ready work when dispatch worker starts are unavailable", async () => {
+    const keyed = createMemoryStore();
+    const runtime = createPluginRuntime();
+    const api = {
+      runtime: {
+        ...runtime,
+        state: {
+          openKeyedStore: vi.fn(() => keyed),
+        },
+      },
+    } as unknown as OpenClawPluginApi;
+    const store = new WorkboardStore(keyed);
+    const tools = new Map(
+      createWorkboardTools({
+        api,
+        store,
+        context: { agentId: "main" } as never,
+      }).map((tool) => [tool.name, tool]),
+    );
+    const card = await store.create({
+      title: "Scheduled worker",
+      status: "scheduled",
+      scheduledAt: 1,
+    });
+
+    const dispatch = readPayload(await tools.get("workboard_dispatch")?.execute("call-5", {}));
+
+    expect(dispatch.promoted).toEqual([expect.objectContaining({ id: card.id, status: "ready" })]);
+    expect(dispatch.started).toEqual([]);
+    expect(dispatch.startFailures).toEqual([]);
+    expect(dispatch.startUnavailable).toMatchObject({
+      code: "OPENCLAW_SUBAGENT_RUNTIME_REQUEST_SCOPE",
+      startableCount: 1,
+    });
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      status: "ready",
+      metadata: { automation: { dispatchCount: 1 } },
+    });
+    expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
   });
 
   it("redacts claim tokens from dispatch tool results", async () => {
@@ -327,6 +373,7 @@ describe("workboard tools", () => {
         state: {
           openKeyedStore: vi.fn(() => keyed),
         },
+        subagent: { run: vi.fn() },
       },
     } as unknown as OpenClawPluginApi;
     const store = new WorkboardStore(keyed);

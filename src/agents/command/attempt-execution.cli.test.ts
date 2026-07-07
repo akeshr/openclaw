@@ -2193,6 +2193,15 @@ describe("CLI attempt execution", () => {
     expect(embeddedArg.suppressLiveStreamOutput).toBe(true);
   });
 
+  it("forwards gateway subagent binding into embedded attempts", async () => {
+    const embeddedArg = await runOpenClawEmbeddedAttemptForTest({
+      opts: { allowGatewaySubagentBinding: true },
+      runId: "gateway-subagent-binding",
+    });
+
+    expect(embeddedArg.allowGatewaySubagentBinding).toBe(true);
+  });
+
   it("forwards selected auth profiles through metadata-scoped provider aliases", async () => {
     const sessionKey = "agent:main:direct:metadata-auth-alias";
     const sessionEntry: SessionEntry = {

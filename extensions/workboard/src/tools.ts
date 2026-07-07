@@ -3,6 +3,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
 import { WorkboardStore } from "./store.js";
 import type { WorkboardCard } from "./types.js";
 
@@ -1005,7 +1006,7 @@ export function createWorkboardTools(params: {
       name: "workboard_dispatch",
       label: "Workboard Dispatch",
       description:
-        "Run one Workboard dispatcher pass: promote unblocked cards, reclaim expired claims, and block timed-out runs.",
+        "Run one Workboard dispatcher pass: promote unblocked cards, reclaim expired claims, block timed-out runs, and start eligible worker sessions.",
       parameters: Type.Object(
         {
           boardId: Type.Optional(Type.String({ description: "Optional board id filter." })),
@@ -1017,7 +1018,13 @@ export function createWorkboardTools(params: {
           rawParams && typeof rawParams === "object" && !Array.isArray(rawParams)
             ? (rawParams as Record<string, unknown>)
             : {};
-        const result = await store.dispatch({ boardId: record.boardId });
+        const result = await dispatchAndStartWorkboardCards({
+          store,
+          subagent: params.api.runtime.subagent,
+          options: {
+            boardId: typeof record.boardId === "string" ? record.boardId : undefined,
+          },
+        });
         return jsonResult({
           ...result,
           promoted: result.promoted.map(redactClaimToken),

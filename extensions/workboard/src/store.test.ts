@@ -499,6 +499,102 @@ describe("WorkboardStore", () => {
     }
   });
 
+  it("does not reopen completed cards from non-done lifecycle sync", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000);
+      const store = new WorkboardStore(createMemoryStore());
+      const execution = {
+        id: "exec-1",
+        kind: "agent-session" as const,
+        engine: "codex" as const,
+        mode: "autonomous" as const,
+        status: "running" as const,
+        model: "openai/gpt-5.5",
+        sessionKey: "agent:main:dashboard:1",
+        runId: "run-1",
+        startedAt: 500,
+        updatedAt: 500,
+      };
+      const card = await store.create({
+        title: "Completed worker card",
+        status: "running",
+        sessionKey: execution.sessionKey,
+        runId: execution.runId,
+        execution,
+      });
+
+      vi.setSystemTime(2000);
+      const completed = await store.complete(card.id, { summary: "Worker finished." });
+      expect(completed.status).toBe("done");
+      expect(completed.execution?.status).toBe("done");
+      expect(completed.metadata?.notifications).toEqual([
+        expect.objectContaining({
+          kind: "completed",
+          runId: execution.runId,
+        }),
+      ]);
+
+      vi.setSystemTime(3000);
+      const lifecycleReview = await store.update(card.id, {
+        status: "review",
+        execution: { ...execution, status: "review", updatedAt: 3000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 3000 },
+      });
+
+      expect(lifecycleReview).toEqual(completed);
+      expect(lifecycleReview.status).toBe("done");
+      expect(lifecycleReview.execution?.status).toBe("done");
+      expect(lifecycleReview.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+      expect(lifecycleReview.metadata?.notifications).toHaveLength(1);
+
+      vi.setSystemTime(4000);
+      const executionOnlyReview = await store.update(card.id, {
+        execution: { ...execution, status: "review", updatedAt: 4000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 4000 },
+      });
+
+      expect(executionOnlyReview).toEqual(completed);
+      expect(executionOnlyReview.status).toBe("done");
+      expect(executionOnlyReview.execution?.status).toBe("done");
+      expect(executionOnlyReview.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+      expect(executionOnlyReview.metadata?.notifications).toHaveLength(1);
+
+      vi.setSystemTime(5000);
+      const lifecycleBlocked = await store.update(card.id, {
+        status: "blocked",
+        execution: { ...execution, status: "blocked", updatedAt: 5000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 5000 },
+      });
+
+      expect(lifecycleBlocked).toEqual(completed);
+      expect(lifecycleBlocked.status).toBe("done");
+      expect(lifecycleBlocked.execution?.status).toBe("done");
+      expect(lifecycleBlocked.metadata?.attempts).toEqual([
+        expect.objectContaining({ status: "succeeded", runId: execution.runId }),
+      ]);
+      expect(lifecycleBlocked.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+      expect(lifecycleBlocked.metadata?.notifications).toHaveLength(1);
+
+      vi.setSystemTime(6000);
+      const executionOnlyBlocked = await store.update(card.id, {
+        execution: { ...execution, status: "blocked", updatedAt: 6000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 6000 },
+      });
+
+      expect(executionOnlyBlocked).toEqual(completed);
+      expect(executionOnlyBlocked.status).toBe("done");
+      expect(executionOnlyBlocked.execution?.status).toBe("done");
+      expect(executionOnlyBlocked.metadata?.attempts).toEqual([
+        expect.objectContaining({ status: "succeeded", runId: execution.runId }),
+      ]);
+      expect(executionOnlyBlocked.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+      expect(executionOnlyBlocked.metadata?.notifications).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps creation status from stale lifecycle patches", async () => {
     vi.useFakeTimers();
     try {
@@ -1570,6 +1666,63 @@ describe("WorkboardStore", () => {
       { summary: "Recovered." },
     );
     expect(recovered.metadata?.failureCount).toBeUndefined();
+  });
+
+  it("preserves already-done cards when a late block arrives", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Terminal card",
+      status: "running",
+      metadata: { failureCount: 1 },
+      execution: {
+        id: "exec-terminal",
+        kind: "agent-session",
+        engine: "codex",
+        mode: "autonomous",
+        status: "running",
+        model: "openai/gpt-5.5",
+        startedAt: 1_000,
+        updatedAt: 1_000,
+      },
+    });
+    await store.claim(card.id, { ownerId: "main", token: "terminal-token" });
+    const completed = await store.complete(card.id, {
+      ownerId: "main",
+      token: "terminal-token",
+      summary: "Terminal packet delivered.",
+    });
+
+    const lateBlocked = await store.block(
+      completed.id,
+      {
+        ownerId: "main",
+        token: "terminal-token",
+        reason: "Late stale cleanup could not reconstruct wake.",
+      },
+      { ownerId: "main", token: "terminal-token" },
+    );
+
+    expect(lateBlocked.status).toBe("done");
+    expect(lateBlocked.execution?.status).toBe("done");
+    expect(lateBlocked.metadata?.failureCount).toBeUndefined();
+    expect(lateBlocked.metadata?.claim).toBeUndefined();
+    expect(lateBlocked.metadata?.attempts).toEqual([
+      expect.objectContaining({ status: "succeeded" }),
+    ]);
+    expect(lateBlocked.metadata?.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ body: "Terminal packet delivered." }),
+        expect.objectContaining({
+          body: "Ignored block on already-done card: Late stale cleanup could not reconstruct wake.",
+        }),
+      ]),
+    );
+    expect(lateBlocked.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "moved", fromStatus: "running", toStatus: "done" }),
+        expect.objectContaining({ kind: "comment_added" }),
+      ]),
+    );
   });
 
   it("keeps long lifecycle handoffs in comments while capping notifications", async () => {

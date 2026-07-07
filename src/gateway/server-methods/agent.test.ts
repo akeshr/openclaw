@@ -3313,6 +3313,14 @@ describe("gateway agent handler", () => {
       );
 
       await waitForAssertion(() => {
+        expect(mocks.agentCommand).toHaveBeenCalled();
+      });
+      const commandOpts = mocks.agentCommand.mock.calls.at(-1)?.[0] as
+        | { allowGatewaySubagentBinding?: boolean }
+        | undefined;
+      expect(commandOpts?.allowGatewaySubagentBinding).toBe(true);
+
+      await waitForAssertion(() => {
         const tasks = listTaskRecords().filter((task) => task.runId === runId);
         expect(tasks).toHaveLength(1);
         const task = requireValue(tasks[0], "expected one plugin subagent task");

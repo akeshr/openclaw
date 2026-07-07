@@ -115,6 +115,7 @@ import { recordRunStart, shouldDeferWake, type DeferDecision } from "./heartbeat
 import {
   buildCronEventPrompt,
   buildExecEventPrompt,
+  buildWakeEventPrompt,
   isCronSystemEvent,
   isExecCompletionEvent,
   isRelayableExecCompletionEvent,
@@ -1101,6 +1102,7 @@ type HeartbeatPromptResolution = {
   hasExecCompletion: boolean;
   hasRelayableExecCompletion: boolean;
   hasCronEvents: boolean;
+  hasWakeEvents: boolean;
   hasDueCommitments: boolean;
   usesHeartbeatResponseTool: boolean;
 };
@@ -1203,6 +1205,14 @@ function resolveHeartbeatRunPrompt(params: {
         isCronSystemEvent(event.text),
     )
     .map((event) => event.text);
+  const wakeEvents = pendingEventEntries
+    .filter(
+      (event) =>
+        params.preflight.isWakePayload &&
+        !params.preflight.isCronWake &&
+        isCronSystemEvent(event.text),
+    )
+    .map((event) => event.text);
   const execEvents = params.preflight.shouldInspectPendingEvents
     ? pendingEventEntries
         .filter((event) => isExecCompletionEvent(event.text))
@@ -1237,6 +1247,24 @@ ${completionInstruction}`;
         hasExecCompletion: false,
         hasRelayableExecCompletion: false,
         hasCronEvents: false,
+        hasWakeEvents: false,
+        hasDueCommitments: false,
+        usesHeartbeatResponseTool: params.useHeartbeatResponseTool,
+      };
+    }
+    if (wakeEvents.length > 0) {
+      return {
+        prompt: appendHeartbeatFileDirectives(
+          buildWakeEventPrompt(wakeEvents, {
+            deliverToUser: params.canRelayToUser,
+            useHeartbeatResponseTool: params.useHeartbeatResponseTool,
+          }),
+          params.heartbeatFileContent,
+        ),
+        hasExecCompletion: false,
+        hasRelayableExecCompletion: false,
+        hasCronEvents: false,
+        hasWakeEvents: true,
         hasDueCommitments: false,
         usesHeartbeatResponseTool: params.useHeartbeatResponseTool,
       };
@@ -1247,6 +1275,7 @@ ${completionInstruction}`;
         hasExecCompletion: false,
         hasRelayableExecCompletion: false,
         hasCronEvents: false,
+        hasWakeEvents: false,
         hasDueCommitments,
         usesHeartbeatResponseTool: false,
       };
@@ -1256,6 +1285,7 @@ ${completionInstruction}`;
       hasExecCompletion: false,
       hasRelayableExecCompletion: false,
       hasCronEvents: false,
+      hasWakeEvents: false,
       hasDueCommitments: false,
       usesHeartbeatResponseTool: false,
     };
@@ -1272,9 +1302,14 @@ ${completionInstruction}`;
           deliverToUser: params.canRelayToUser,
           useHeartbeatResponseTool: baseUsesHeartbeatResponseTool,
         })
-      : baseUsesHeartbeatResponseTool
-        ? resolveHeartbeatResponseToolPrompt(params.cfg, params.heartbeat)
-        : resolveHeartbeatPrompt(params.cfg, params.heartbeat);
+      : wakeEvents.length > 0
+        ? buildWakeEventPrompt(wakeEvents, {
+            deliverToUser: params.canRelayToUser,
+            useHeartbeatResponseTool: baseUsesHeartbeatResponseTool,
+          })
+        : baseUsesHeartbeatResponseTool
+          ? resolveHeartbeatResponseToolPrompt(params.cfg, params.heartbeat)
+          : resolveHeartbeatPrompt(params.cfg, params.heartbeat);
   const basePromptWithHint = appendHeartbeatWorkspacePathHint(basePrompt, params.workspaceDir);
   const basePromptWithDirectives = appendHeartbeatFileDirectives(
     basePromptWithHint,
@@ -1289,6 +1324,7 @@ ${completionInstruction}`;
     hasExecCompletion,
     hasRelayableExecCompletion,
     hasCronEvents,
+    hasWakeEvents: wakeEvents.length > 0,
     hasDueCommitments,
     usesHeartbeatResponseTool: baseUsesHeartbeatResponseTool,
   };
@@ -1298,6 +1334,7 @@ function selectSystemEventsConsumedByHeartbeat(params: {
   preflight: HeartbeatPreflight;
   hasExecCompletion: boolean;
   hasCronEvents: boolean;
+  hasWakeEvents: boolean;
 }): SystemEvent[] {
   const { preflight } = params;
   if (!preflight.shouldInspectPendingEvents || preflight.pendingEventEntries.length === 0) {
@@ -1311,6 +1348,11 @@ function selectSystemEventsConsumedByHeartbeat(params: {
       (event) =>
         (preflight.isCronWake || event.contextKey?.startsWith("cron:")) &&
         isCronSystemEvent(event.text),
+    );
+  }
+  if (params.hasWakeEvents) {
+    return preflight.pendingEventEntries.filter(
+      (event) => preflight.isWakePayload && !preflight.isCronWake && isCronSystemEvent(event.text),
     );
   }
   return preflight.pendingEventEntries;
@@ -1554,6 +1596,7 @@ export async function runHeartbeatOnce(opts: {
     hasExecCompletion,
     hasRelayableExecCompletion,
     hasCronEvents,
+    hasWakeEvents,
     hasDueCommitments,
     usesHeartbeatResponseTool,
   } = resolveHeartbeatRunPrompt({
@@ -1574,6 +1617,7 @@ export async function runHeartbeatOnce(opts: {
     preflight,
     hasExecCompletion,
     hasCronEvents,
+    hasWakeEvents,
   });
 
   // If no tasks are due, skip heartbeat entirely

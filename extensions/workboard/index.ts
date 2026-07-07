@@ -36,6 +36,7 @@ export default definePluginEntry({
         "workboard_read",
         "workboard_claim",
         "workboard_heartbeat",
+        "workboard_mark_stale",
         "workboard_complete",
         "workboard_attachment_add",
         "workboard_attachment_read",

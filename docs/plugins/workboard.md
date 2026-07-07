@@ -147,7 +147,8 @@ Workboard also exposes optional agent tools for board-aware workflows:
   `workboard_proof`, `workboard_unblock`, and `workboard_dispatch` let an agent
   inspect board namespaces, view queue stats, recover stuck work, add handoff
   notes, attach proof or artifact references, move blocked work back to `todo`,
-  and nudge dependency promotion or stale-claim cleanup.
+  and run the same worker-start dispatcher as the dashboard, CLI, and slash
+  command.
 
 Claimed cards reject agent-tool mutations from other agents unless the caller
 has the claim token returned by `workboard_claim`. Dashboard operators still use
@@ -207,6 +208,13 @@ When a worker starts successfully, Workboard stores the session key, run id,
 engine, mode, model label, status, and worker log on the card. The session key
 is deterministic for the board and card, which makes repeated dispatches route
 back to the same worker lane instead of creating unrelated sessions.
+
+If a dispatch entry point is running in a plugin runtime where subagent worker
+starts are unavailable, Workboard still performs the store dispatch pass
+(promotion, stale-claim reclaim, timed-out run blocking) but returns
+`startUnavailable` instead of claiming ready cards. This keeps model-visible or
+standalone dispatch calls from turning ready work into blocked work just because
+the current runtime cannot start a worker.
 
 If a worker cannot be started after a card is claimed, Workboard blocks the
 card, clears the claim, records the run-start failure, and appends a worker log
