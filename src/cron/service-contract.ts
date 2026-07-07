@@ -1,3 +1,4 @@
+import type { HeartbeatRunResult } from "../infra/heartbeat-wake.js";
 /** Public cron service interface shared by callers and implementations. */
 import type { CronListPageOptions, CronListPageResult } from "./service/list-page-types.js";
 import type {
@@ -14,7 +15,17 @@ import type {
 } from "./service/state.js";
 import type { CronJob } from "./types.js";
 
-type CronWakeResult = { ok: true } | { ok: false; reason?: "unwakeable-session-key" };
+export type CronWakeResult =
+  | { ok: true; heartbeat?: HeartbeatRunResult }
+  | {
+      ok: false;
+      reason?:
+        | "unwakeable-session-key"
+        | "event-not-queued"
+        | "heartbeat-skipped"
+        | "heartbeat-failed";
+      heartbeat?: HeartbeatRunResult;
+    };
 
 /** Result shape for direct/queued cron runs. */
 export type CronServiceRunResult = CronRunResult;
@@ -39,5 +50,5 @@ export interface CronServiceContract {
     text: string;
     sessionKey?: string;
     agentId?: string;
-  }): CronWakeResult;
+  }): CronWakeResult | Promise<CronWakeResult>;
 }

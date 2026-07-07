@@ -1403,7 +1403,12 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT };
   }
 
-  if (hasActiveCronJobs() || hasQueuedWorkInLanes(HEARTBEAT_ALWAYS_BUSY_LANES, getSize)) {
+  const isExplicitTargetedImmediateWake =
+    Boolean(opts.sessionKey?.trim()) && (opts.intent === "immediate" || opts.intent === "manual");
+  if (
+    !isExplicitTargetedImmediateWake &&
+    (hasActiveCronJobs() || hasQueuedWorkInLanes(HEARTBEAT_ALWAYS_BUSY_LANES, getSize))
+  ) {
     emitHeartbeatEvent({
       status: "skipped",
       reason: HEARTBEAT_SKIP_CRON_IN_PROGRESS,

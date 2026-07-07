@@ -13,6 +13,7 @@ type RunCronIsolatedAgentTurnMock = (params: {
 
 const {
   enqueueSystemEventMock,
+  peekMatchingSystemEventEntryMock,
   consumeSelectedSystemEventEntriesMock,
   requestHeartbeatMock,
   runHeartbeatOnceMock,
@@ -27,6 +28,7 @@ const {
   requestSafeGatewayRestartMock,
 } = vi.hoisted(() => ({
   enqueueSystemEventMock: vi.fn(),
+  peekMatchingSystemEventEntryMock: vi.fn(),
   consumeSelectedSystemEventEntriesMock: vi.fn((_sessionKey, entries) => entries ?? []),
   requestHeartbeatMock: vi.fn(),
   runHeartbeatOnceMock: vi.fn<
@@ -93,6 +95,10 @@ function enqueueSystemEventEntry(text: string, opts?: unknown) {
   };
 }
 
+function peekMatchingSystemEventEntry(text: string, opts?: unknown) {
+  return peekMatchingSystemEventEntryMock(text, opts);
+}
+
 function consumeSelectedSystemEventEntries(sessionKey: string, entries: readonly unknown[]) {
   return consumeSelectedSystemEventEntriesMock(sessionKey, entries);
 }
@@ -108,6 +114,7 @@ function runHeartbeatOnce(...args: unknown[]) {
 vi.mock("../infra/system-events.js", () => ({
   enqueueSystemEvent,
   enqueueSystemEventEntry,
+  peekMatchingSystemEventEntry,
   consumeSelectedSystemEventEntries,
 }));
 
@@ -267,6 +274,7 @@ function expectCleanupForSessionKeys(sessionKeys: string[]) {
 describe("buildGatewayCronService", () => {
   beforeEach(() => {
     enqueueSystemEventMock.mockClear();
+    peekMatchingSystemEventEntryMock.mockClear();
     consumeSelectedSystemEventEntriesMock.mockClear();
     requestHeartbeatMock.mockClear();
     runHeartbeatOnceMock.mockClear();
@@ -1084,7 +1092,7 @@ describe("buildGatewayCronService", () => {
     }
   });
 
-  it("threads cron wake sessionKey through the CronService adapter", () => {
+  it("threads cron wake sessionKey through the CronService adapter", async () => {
     const cfg = {
       session: { mainKey: "main" },
       cron: {
@@ -1106,16 +1114,16 @@ describe("buildGatewayCronService", () => {
     });
     try {
       const sessionKey = "agent:ops:cron:nightly:run:abc-123";
-      expect(
+      await expect(
         state.cron.wake({
           mode: "now",
           text: "hello",
           sessionKey,
         }),
-      ).toEqual({ ok: true });
+      ).resolves.toEqual({ ok: true, heartbeat: { status: "ran", durationMs: 1 } });
 
       const enqueueCall = lastMockCall(enqueueSystemEventMock, "enqueue system event");
-      const wakeCall = lastMockCall(requestHeartbeatMock, "request heartbeat");
+      const wakeCall = lastMockCall(runHeartbeatOnceMock, "run heartbeat once");
       expect(enqueueCall?.[0]).toBe("hello");
       expect((enqueueCall?.[1] as { sessionKey?: string } | undefined)?.sessionKey).toMatch(
         /^agent:ops:/,
@@ -1134,6 +1142,60 @@ describe("buildGatewayCronService", () => {
       expect(wakeRequest?.reason).toBe("wake");
       expect(wakeRequest?.agentId).toBe("ops");
       expect(wakeRequest?.sessionKey).toMatch(/^agent:ops:/);
+    } finally {
+      state.cron.stop();
+    }
+  });
+
+  it("treats an already-queued targeted wake event as accepted and still runs heartbeat", async () => {
+    const cfg = {
+      session: { mainKey: "main" },
+      cron: {
+        store: path.join(os.tmpdir(), `server-cron-wake-existing-event-${Date.now()}`, "cron.json"),
+      },
+      agents: {
+        list: [
+          { id: "primary", default: true, model: "test/primary" },
+          { id: "ops", model: "test/ops" },
+        ],
+      },
+    } as unknown as OpenClawConfig;
+    loadConfigMock.mockReturnValue(cfg);
+    enqueueSystemEventMock.mockReturnValueOnce(false);
+    peekMatchingSystemEventEntryMock.mockReturnValueOnce({
+      text: "hello",
+      ts: 123,
+    });
+
+    const state = buildGatewayCronService({
+      cfg,
+      deps: {} as CliDeps,
+      broadcast: () => {},
+    });
+    try {
+      const sessionKey = "agent:ops:cron:nightly:run:abc-123";
+      await expect(
+        state.cron.wake({
+          mode: "now",
+          text: "hello",
+          sessionKey,
+        }),
+      ).resolves.toEqual({ ok: true, heartbeat: { status: "ran", durationMs: 1 } });
+
+      expect(peekMatchingSystemEventEntryMock).toHaveBeenCalledWith("hello", {
+        sessionKey: expect.stringMatching(/^agent:ops:/),
+        contextKey: undefined,
+        deliveryContext: undefined,
+      });
+      expect(runHeartbeatOnceMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "manual",
+          intent: "immediate",
+          reason: "wake",
+          agentId: "ops",
+          sessionKey: expect.stringMatching(/^agent:ops:/),
+        }),
+      );
     } finally {
       state.cron.stop();
     }

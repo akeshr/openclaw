@@ -129,6 +129,31 @@ describe("heartbeat runner skips when target session lane is busy", () => {
     });
   });
 
+  it("allows explicit targeted immediate wakes while a cron job is active", async () => {
+    await withTempHeartbeatSandbox(async ({ storePath, replySpy }) => {
+      const cfg = createHeartbeatTelegramConfig();
+      const sessionKey = await seedHeartbeatTelegramSession(storePath, cfg);
+      markCronJobActive("isolated-wake-proof");
+      enqueueSystemEvent("DOGFOOD wake marker", { sessionKey });
+
+      const result = await runHeartbeatOnce({
+        cfg,
+        sessionKey,
+        source: "manual",
+        intent: "immediate",
+        reason: "wake",
+        deps: {
+          getQueueSize: vi.fn((_lane?: string) => 0),
+          nowMs: () => Date.now(),
+          getReplyFromConfig: replySpy,
+        } as HeartbeatDeps,
+      });
+
+      expect(result.status).toBe("ran");
+      expect(replySpy).toHaveBeenCalled();
+    });
+  });
+
   it("does not return lanes-busy for global subagent-lane work alone", async () => {
     // The global Subagent lane has no agent identity in its name — a stalled
     // subagent on any one agent must not silently disable every other

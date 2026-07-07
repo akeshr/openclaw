@@ -1075,9 +1075,9 @@ export async function enqueueRun(state: CronServiceState, id: string, mode?: "du
 }
 
 /** Enqueues manual wake text through the cron wake API. */
-export function wakeNow(
+export async function wakeNow(
   state: CronServiceState,
   opts: { mode: CronWakeMode; text: string; sessionKey?: string; agentId?: string },
 ) {
-  return wake(state, opts);
+  return await wake(state, opts);
 }

@@ -1181,5 +1181,34 @@ describe("cron method validation", () => {
       });
       expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
     });
+
+    it("returns a gateway error when cron wake cannot prove the target wake", async () => {
+      const context = createCronContext();
+      context.cron.wake.mockResolvedValueOnce({
+        ok: false,
+        reason: "heartbeat-skipped",
+        heartbeat: { status: "skipped", reason: "requests-in-flight" },
+      });
+
+      const { respond } = await invokeCron(
+        "wake",
+        {
+          mode: "now",
+          text: "ping",
+          sessionKey: "agent:main:whatsapp:direct:+1",
+        },
+        { context },
+      );
+
+      expect(context.cron.wake).toHaveBeenCalledWith({
+        mode: "now",
+        text: "ping",
+        sessionKey: "agent:main:whatsapp:direct:+1",
+      });
+      expectResponseError(respond, {
+        code: "UNAVAILABLE",
+        messageIncludes: "heartbeat-skipped",
+      });
+    });
   });
 });

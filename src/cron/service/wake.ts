@@ -1,9 +1,39 @@
 /** Manual cron wake helper for queueing system events into sessions. */
+import {
+  HEARTBEAT_SKIP_CRON_IN_PROGRESS,
+  isRetryableHeartbeatBusySkipReason,
+  type HeartbeatRunResult,
+} from "../../infra/heartbeat-wake.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
+import type { CronSystemEventEnqueueResult } from "./state.js";
 import type { CronServiceState } from "./state.js";
 
+function isSystemEventAccepted(result: CronSystemEventEnqueueResult): boolean {
+  if (typeof result === "boolean") {
+    return result;
+  }
+  if (result && typeof result === "object") {
+    return result.accepted !== false;
+  }
+  return true;
+}
+
+function wakeHeartbeatOptions(params: { sessionKey?: string; agentId?: string }) {
+  return {
+    source: "manual" as const,
+    intent: "immediate" as const,
+    reason: "wake",
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+    ...(params.agentId ? { agentId: params.agentId } : {}),
+  };
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 /** Enqueues a manual cron wake event and optionally pokes the targeted heartbeat loop. */
-export function wake(
+export async function wake(
   state: CronServiceState,
   opts: {
     mode: "now" | "next-heartbeat";
@@ -52,15 +82,46 @@ export function wake(
           ...(originDeliveryContext ? { deliveryContext: originDeliveryContext } : {}),
         }
       : undefined;
-  state.deps.enqueueSystemEvent(text, enqueueOpts);
+  const queued = state.deps.enqueueSystemEvent(text, enqueueOpts);
+  if (!isSystemEventAccepted(queued)) {
+    return { ok: false, reason: "event-not-queued" } as const;
+  }
+
+  const shouldWakeImmediately = opts.mode === "now" || Boolean(sessionKey);
+  if (shouldWakeImmediately && state.deps.runHeartbeatOnce) {
+    const maxWaitMs = state.deps.wakeNowHeartbeatBusyMaxWaitMs ?? 5_000;
+    const retryDelayMs = state.deps.wakeNowHeartbeatBusyRetryDelayMs ?? 250;
+    const waitStartedAt = state.deps.nowMs();
+    let heartbeat: HeartbeatRunResult;
+
+    for (;;) {
+      heartbeat = await state.deps.runHeartbeatOnce(wakeHeartbeatOptions({ sessionKey, agentId }));
+      if (heartbeat.status !== "skipped" || !isRetryableHeartbeatBusySkipReason(heartbeat.reason)) {
+        break;
+      }
+      if (heartbeat.reason === HEARTBEAT_SKIP_CRON_IN_PROGRESS) {
+        state.deps.requestHeartbeat(wakeHeartbeatOptions({ sessionKey, agentId }));
+        return { ok: false, reason: "heartbeat-skipped", heartbeat } as const;
+      }
+      if (state.deps.nowMs() - waitStartedAt > maxWaitMs) {
+        state.deps.requestHeartbeat(wakeHeartbeatOptions({ sessionKey, agentId }));
+        return { ok: false, reason: "heartbeat-skipped", heartbeat } as const;
+      }
+      await wait(retryDelayMs);
+    }
+
+    if (heartbeat.status === "ran") {
+      return { ok: true, heartbeat } as const;
+    }
+    return {
+      ok: false,
+      reason: heartbeat.status === "failed" ? "heartbeat-failed" : "heartbeat-skipped",
+      heartbeat,
+    } as const;
+  }
+
   if (opts.mode === "now") {
-    state.deps.requestHeartbeat({
-      source: "manual",
-      intent: "immediate",
-      reason: "wake",
-      ...(sessionKey ? { sessionKey } : {}),
-      ...(agentId ? { agentId } : {}),
-    });
+    state.deps.requestHeartbeat(wakeHeartbeatOptions({ sessionKey, agentId }));
   } else if (sessionKey) {
     // next-heartbeat + sessionKey still needs a targeted immediate wake.
     // Reasons:
@@ -74,13 +135,7 @@ export function wake(
     // into the same targeted-immediate behavior - this matches the documented
     // user intent (target a specific session for relay) better than silently
     // dropping the event.
-    state.deps.requestHeartbeat({
-      source: "manual",
-      intent: "immediate",
-      reason: "wake",
-      sessionKey,
-      ...(agentId ? { agentId } : {}),
-    });
+    state.deps.requestHeartbeat(wakeHeartbeatOptions({ sessionKey, agentId }));
   }
   return { ok: true } as const;
 }

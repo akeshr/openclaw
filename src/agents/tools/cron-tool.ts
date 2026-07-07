@@ -12,7 +12,7 @@ import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normal
 import type { CronDelivery } from "../../cron/types.js";
 import { normalizeHttpWebhookUrl } from "../../cron/webhook-url.js";
 import { GatewayClientRequestError } from "../../gateway/client.js";
-import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
+import { isSubagentSessionKey, parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { isRecord, truncateUtf16Safe } from "../../utils.js";
 import type { DeliveryContext } from "../../utils/delivery-context.shared.js";
@@ -578,6 +578,14 @@ function isCronSelfIntrospectionAction(action: string) {
   return action === "status" || action === "list";
 }
 
+function isCronSelfWakeAllowed(params: Record<string, unknown>) {
+  const explicitSessionKey = readStringParam(params, "sessionKey")?.trim();
+  if (!explicitSessionKey || isSubagentSessionKey(explicitSessionKey)) {
+    return false;
+  }
+  return Boolean(parseAgentSessionKey(explicitSessionKey)?.agentId);
+}
+
 function assertCronSelfRemoveScope(
   opts: CronToolOptions | undefined,
   action: string,
@@ -592,6 +600,9 @@ function assertCronSelfRemoveScope(
     if (id && id === selfRemoveOnlyJobId) {
       return;
     }
+  }
+  if (action === "wake" && isCronSelfWakeAllowed(params)) {
+    return;
   }
   throw new Error(CRON_SELF_REMOVE_SCOPE_ERROR);
 }
@@ -835,6 +846,7 @@ Default: prefer isolated agentTurn jobs unless the user explicitly wants current
 
 RESTRICTED CRON RUNS:
 - Some isolated cron runs get narrow self-cleanup grant: status/list self-only, get/runs current job only, mutation only remove current job.
+- Those scoped runs may also send wake only to an explicit canonical non-subagent sessionKey; inferred/default wakes stay denied.
 
 WAKE MODES (for wake action):
 - "next-heartbeat" default: wake next heartbeat

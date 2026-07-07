@@ -85,18 +85,27 @@ export function isSystemEventContextChanged(
   return normalized !== (existing?.lastContextKey ?? null);
 }
 
+function findMatchingEventInQueue(
+  queue: readonly SystemEvent[],
+  text: string,
+  contextKey: string | null,
+  deliveryContext: DeliveryContext | undefined,
+): SystemEvent | undefined {
+  const incoming = { text, contextKey, deliveryContext };
+  if (contextKey === null) {
+    const last = queue[queue.length - 1];
+    return last && isDuplicateSystemEvent(last, incoming) ? last : undefined;
+  }
+  return queue.find((event) => isDuplicateSystemEvent(event, incoming));
+}
+
 function findDuplicateInQueue(
   queue: readonly SystemEvent[],
   text: string,
   contextKey: string | null,
   deliveryContext: DeliveryContext | undefined,
 ): boolean {
-  const incoming = { text, contextKey, deliveryContext };
-  if (contextKey === null) {
-    const last = queue[queue.length - 1];
-    return last ? isDuplicateSystemEvent(last, incoming) : false;
-  }
-  return queue.some((event) => isDuplicateSystemEvent(event, incoming));
+  return Boolean(findMatchingEventInQueue(queue, text, contextKey, deliveryContext));
 }
 
 export function enqueueSystemEventEntry(
@@ -134,6 +143,27 @@ export function enqueueSystemEventEntry(
 
 export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
   return enqueueSystemEventEntry(text, options) !== null;
+}
+
+export function peekMatchingSystemEventEntry(
+  text: string,
+  options: SystemEventOptions,
+): SystemEvent | null {
+  const entry = getSessionQueue(options.sessionKey);
+  if (!entry || entry.queue.length === 0) {
+    return null;
+  }
+  const cleaned = sanitizeInboundSystemTags(text).trim();
+  if (!cleaned) {
+    return null;
+  }
+  const event = findMatchingEventInQueue(
+    entry.queue,
+    cleaned,
+    normalizeContextKey(options.contextKey),
+    normalizeDeliveryContext(options.deliveryContext),
+  );
+  return event ? cloneSystemEvent(event) : null;
 }
 
 export function drainSystemEventEntries(sessionKey: string): SystemEvent[] {

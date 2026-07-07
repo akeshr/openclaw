@@ -427,7 +427,15 @@ describe("cron tool", () => {
     ["add", { action: "add", job: buildReminderAgentTurnJob() }],
     ["update", { action: "update", jobId: "job-current", patch: { enabled: false } }],
     ["run", { action: "run", jobId: "job-current" }],
-    ["wake", { action: "wake", text: "wake up" }],
+    ["wake without explicit target", { action: "wake", text: "wake up" }],
+    [
+      "wake to subagent target",
+      {
+        action: "wake",
+        text: "wake up",
+        sessionKey: "agent:jarvis:subagent:worker",
+      },
+    ],
   ])("denies scoped isolated cron runs from using %s", async (_action, args) => {
     const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
 
@@ -436,6 +444,25 @@ describe("cron tool", () => {
     );
 
     expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("allows scoped isolated cron runs to wake an explicit user-visible session", async () => {
+    const tool = createTestCronTool({ selfRemoveOnlyJobId: "job-current" });
+
+    await tool.execute("call-scoped-wake", {
+      action: "wake",
+      text: "wake up",
+      mode: "now",
+      sessionKey: "agent:jarvis:whatsapp:direct:+917258067800",
+    });
+
+    const params = expectSingleGatewayCallMethod("wake");
+    expect(params).toEqual({
+      mode: "now",
+      text: "wake up",
+      sessionKey: "agent:jarvis:whatsapp:direct:+917258067800",
+      agentId: "jarvis",
+    });
   });
 
   it("filters cron list by the requester agent session", async () => {

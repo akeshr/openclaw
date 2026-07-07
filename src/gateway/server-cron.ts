@@ -36,6 +36,7 @@ import { requestSafeGatewayRestart } from "../infra/restart-coordinator.js";
 import {
   consumeSelectedSystemEventEntries,
   enqueueSystemEventEntry,
+  peekMatchingSystemEventEntry,
 } from "../infra/system-events.js";
 import { getChildLogger } from "../logging.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
@@ -332,12 +333,25 @@ export function buildGatewayCronService(params: {
         contextKey: opts?.contextKey,
         deliveryContext: opts?.deliveryContext,
       });
+      const acceptedEvent =
+        event ??
+        peekMatchingSystemEventEntry(text, {
+          sessionKey,
+          contextKey: opts?.contextKey,
+          deliveryContext: opts?.deliveryContext,
+        });
       return event
         ? {
             accepted: true,
             remove: () => consumeSelectedSystemEventEntries(sessionKey, [event]).length > 0,
           }
-        : { accepted: false };
+        : acceptedEvent
+          ? {
+              accepted: true,
+              remove: () =>
+                consumeSelectedSystemEventEntries(sessionKey, [acceptedEvent]).length > 0,
+            }
+          : { accepted: false };
     },
     resolveOriginDeliveryContext: (opts) => {
       // Resolve the wake target the same way the enqueue/heartbeat deps do,

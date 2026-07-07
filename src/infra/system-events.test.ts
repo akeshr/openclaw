@@ -11,6 +11,7 @@ import {
   enqueueSystemEvent,
   hasSystemEvents,
   isSystemEventContextChanged,
+  peekMatchingSystemEventEntry,
   peekSystemEventEntries,
   peekSystemEvents,
   resetSystemEventsForTest,
@@ -77,6 +78,32 @@ describe("system events (session routing)", () => {
 
     expect(first).toBe(true);
     expect(second).toBe(false);
+  });
+
+  it("can return the existing duplicate entry for idempotent wake delivery", () => {
+    const sessionKey = "agent:main:test-idempotent-wake";
+    expect(
+      enqueueSystemEvent("Wake marker", {
+        sessionKey,
+        contextKey: "cron:wake",
+        deliveryContext: { channel: "whatsapp", to: "+15551234567" },
+      }),
+    ).toBe(true);
+    expect(
+      enqueueSystemEvent("Wake marker", {
+        sessionKey,
+        contextKey: "cron:wake",
+        deliveryContext: { channel: "whatsapp", to: "+15551234567" },
+      }),
+    ).toBe(false);
+
+    const existing = peekMatchingSystemEventEntry("Wake marker", {
+      sessionKey,
+      contextKey: " CRON:WAKE ",
+      deliveryContext: { channel: "whatsapp", to: "+15551234567" },
+    });
+    expect(existing?.text).toBe("Wake marker");
+    expect(existing?.contextKey).toBe("cron:wake");
   });
 
   it("normalizes context keys when checking for context changes", () => {

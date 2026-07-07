@@ -288,7 +288,7 @@ function isCronInvalidRequestError(err: unknown): boolean {
 
 /** Gateway request handlers for cron jobs and cron run-log access. */
 export const cronHandlers: GatewayRequestHandlers = {
-  wake: ({ params, respond, context }) => {
+  wake: async ({ params, respond, context }) => {
     if (!validateWakeParams(params)) {
       respond(
         false,
@@ -342,12 +342,23 @@ export const cronHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const result = context.cron.wake({
+    const result = await context.cron.wake({
       mode: p.mode,
       text: p.text,
       ...(sessionKey ? { sessionKey } : {}),
       ...(agentId ? { agentId } : {}),
     });
+    if (!result.ok) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, `wake failed: ${result.reason ?? "unknown"}`, {
+          details: result,
+          retryable: result.reason === "heartbeat-skipped",
+        }),
+      );
+      return;
+    }
     respond(true, result, undefined);
   },
   "cron.list": async ({ params, respond, context }) => {

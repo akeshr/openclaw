@@ -77,7 +77,7 @@ export class CronService implements CronServiceContract {
     return this.state.deps.defaultAgentId;
   }
 
-  wake(opts: { mode: CronWakeMode; text: string; sessionKey?: string; agentId?: string }) {
-    return ops.wakeNow(this.state, opts);
+  async wake(opts: { mode: CronWakeMode; text: string; sessionKey?: string; agentId?: string }) {
+    return await ops.wakeNow(this.state, opts);
   }
 }
