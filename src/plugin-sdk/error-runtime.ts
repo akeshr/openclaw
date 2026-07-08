@@ -24,7 +24,9 @@ export function markUnavailableSubagentRuntimeFunction<T extends object>(fn: T):
 export function isUnavailableSubagentRuntimeFunction(value: unknown): boolean {
   return (
     typeof value === "function" &&
-    (value as Record<PropertyKey, unknown>)[UNAVAILABLE_SUBAGENT_RUNTIME_FUNCTION_BRAND] === true
+    (value as unknown as Record<PropertyKey, unknown>)[
+      UNAVAILABLE_SUBAGENT_RUNTIME_FUNCTION_BRAND
+    ] === true
   );
 }
 

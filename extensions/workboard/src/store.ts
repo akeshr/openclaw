@@ -279,6 +279,7 @@ export type WorkboardNotificationSubscribeInput = {
   sessionKey?: unknown;
   runId?: unknown;
   target?: unknown;
+  completionRequesterSessionKey?: unknown;
   eventKinds?: unknown;
 };
 export type WorkboardNotificationListOptions = {
@@ -436,6 +437,12 @@ function normalizeNotificationSubscription(
   );
   const runId = normalizeBoundedString(input.runId, fallback?.runId, 160, "run id");
   const target = normalizeBoundedString(input.target, fallback?.target, 240, "notification target");
+  const completionRequesterSessionKey = normalizeBoundedString(
+    input.completionRequesterSessionKey,
+    fallback?.completionRequesterSessionKey,
+    240,
+    "completion requester session key",
+  );
   if (!cardId && !sessionKey && !runId && !target) {
     throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
   }
@@ -462,6 +469,7 @@ function normalizeNotificationSubscription(
     ...(sessionKey ? { sessionKey } : {}),
     ...(runId ? { runId } : {}),
     ...(target ? { target } : {}),
+    ...(completionRequesterSessionKey ? { completionRequesterSessionKey } : {}),
     ...(eventKinds ? { eventKinds } : {}),
     ...preservedFields,
     createdAt: fallback?.createdAt ?? now,
@@ -1711,6 +1719,14 @@ function shouldSkipPersistedLifecycleStatusUpdate(
   return statusTransitionAt !== undefined && sourceUpdatedAt < statusTransitionAt;
 }
 
+function isSuccessfulLifecycleStatus(status: WorkboardStatus | undefined): boolean {
+  return status === "review" || status === "done";
+}
+
+function isSuccessfulLifecycleExecutionStatus(execution: WorkboardExecution | undefined): boolean {
+  return execution?.status === "review" || execution?.status === "done";
+}
+
 function updateEvent(
   existing: WorkboardCard,
   next: WorkboardCard,
@@ -2390,6 +2406,18 @@ export class WorkboardStore {
     });
   }
 
+  private async hasCreatedChildWork(card: WorkboardCard): Promise<boolean> {
+    if (cardChildIds(card).length > 0 || card.metadata?.automation?.createdCardIds?.length) {
+      return true;
+    }
+    for (const candidate of await this.list()) {
+      if (candidate.id !== card.id && candidate.metadata?.automation?.createdByCardId === card.id) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async list(options: WorkboardListOptions = {}): Promise<WorkboardCard[]> {
     const boardId = normalizeBoardId(options.boardId);
     const entries = await this.store.entries();
@@ -2726,6 +2754,20 @@ export class WorkboardStore {
       patch.execution !== undefined ? normalizeExecution(patch.execution) : undefined;
     let effectivePatch = patch;
     let ignoredLifecycleStatusSource = false;
+    if (
+      lifecycleStatusSourceUpdatedAt !== undefined &&
+      existing.status === "running" &&
+      (isSuccessfulLifecycleStatus(lifecyclePatchStatus) ||
+        isSuccessfulLifecycleExecutionStatus(lifecyclePatchExecution)) &&
+      (await this.hasCreatedChildWork(existing))
+    ) {
+      // A worker that created child work must close the parent explicitly after
+      // consuming those child outcomes. Session lifecycle "review" only proves
+      // a turn boundary; auto-completing here can publish a premature root
+      // terminal event before the orchestration packet exists.
+      effectivePatch = { ...patch, status: undefined, execution: undefined };
+      ignoredLifecycleStatusSource = true;
+    }
     if (
       patch.status !== undefined &&
       lifecycleStatusSourceUpdatedAt !== undefined &&

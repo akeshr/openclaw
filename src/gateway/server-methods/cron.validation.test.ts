@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelPlugin } from "../../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { CronWakeResult } from "../../cron/service-contract.js";
 import type { CronDelivery, CronJob } from "../../cron/types.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
@@ -89,7 +90,7 @@ function createCronContext(currentJob?: CronJob) {
       enqueueRun: vi.fn(async () => ({ ok: true, enqueued: true, runId: "run-1" })),
       getDefaultAgentId: vi.fn(() => "main"),
       getJob: vi.fn(() => currentJob),
-      wake: vi.fn(() => ({ ok: true }) as const),
+      wake: vi.fn<() => CronWakeResult>(() => ({ ok: true })),
       readJob: vi.fn(async (id: string) => (id === currentJob?.id ? currentJob : undefined)),
     },
     logGateway: {

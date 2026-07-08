@@ -1,7 +1,12 @@
 // Workboard tests cover dispatcher plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import { WorkboardStore, type PersistedWorkboardCard, type WorkboardKeyedStore } from "./store.js";
+import {
+  WorkboardStore,
+  type PersistedWorkboardCard,
+  type PersistedWorkboardNotificationSubscription,
+  type WorkboardKeyedStore,
+} from "./store.js";
 
 function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
   const entries = new Map<string, T>();
@@ -110,6 +115,104 @@ describe("dispatchAndStartWorkboardCards", () => {
       }),
     ]);
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("routes child worker completion to the parent card session", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const parent = await store.create({
+      title: "JLO root",
+      status: "done",
+      agentId: "jarvis",
+      sessionKey: "agent:jarvis:subagent:workboard-loop-root",
+    });
+    await store.create({
+      title: "Axiom child",
+      status: "ready",
+      priority: "urgent",
+      agentId: "axiom",
+      parents: [parent.id],
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-child" });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      deliver: false,
+      expectsCompletionMessage: true,
+      completionRequesterSessionKey: "agent:jarvis:subagent:workboard-loop-root",
+      completionRequesterDisplayKey: `parent:${parent.id}`,
+    });
+  });
+
+  it("routes created-by child worker completion to the parent card session", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const parent = await store.create({
+      title: "JLO root",
+      status: "running",
+      agentId: "jarvis",
+      sessionKey: "agent:jarvis:subagent:workboard-loop-root",
+    });
+    await store.create({
+      title: "Crucible child",
+      status: "ready",
+      priority: "urgent",
+      agentId: "crucible",
+      createdByCardId: parent.id,
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-child" });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      deliver: false,
+      expectsCompletionMessage: true,
+      completionRequesterSessionKey: "agent:jarvis:subagent:workboard-loop-root",
+      completionRequesterDisplayKey: `parent:${parent.id}`,
+    });
+  });
+
+  it("routes root worker completion to an explicit notification requester session", async () => {
+    const subscriptions = createMemoryStore<PersistedWorkboardNotificationSubscription>();
+    const store = new WorkboardStore(createMemoryStore(), { subscriptions });
+    const root = await store.create({
+      title: "JLO root",
+      status: "ready",
+      priority: "urgent",
+      agentId: "jarvis",
+      boardId: "mission",
+    });
+    await store.subscribeNotifications({
+      boardId: "mission",
+      cardId: root.id,
+      target: "Main terminal review",
+      completionRequesterSessionKey: "agent:jarvis:whatsapp:direct:+917258067800",
+      eventKinds: ["completed", "failed"],
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-root" });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1, boardId: "mission" },
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      deliver: false,
+      expectsCompletionMessage: true,
+      completionRequesterSessionKey: "agent:jarvis:whatsapp:direct:+917258067800",
+      completionRequesterDisplayKey: `workboard:${root.id}`,
+    });
   });
 
   it("starts workers only for the selected board", async () => {

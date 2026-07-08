@@ -97,6 +97,7 @@ describe("WorkboardStore", () => {
       const subscription = await store.subscribeNotifications({
         boardId: board.id,
         target: "agent:main:test",
+        completionRequesterSessionKey: "agent:main:review",
         eventKinds: ["completed"],
       });
       if (process.platform !== "win32") {
@@ -148,7 +149,12 @@ describe("WorkboardStore", () => {
       await reopened.delete(card.id);
       expect(await reopened.getAttachment(attachmentId ?? "")).toBeUndefined();
       expect(await reopened.listNotificationSubscriptions({ boardId: board.id })).toMatchObject({
-        subscriptions: [expect.objectContaining({ id: subscription.id })],
+        subscriptions: [
+          expect.objectContaining({
+            id: subscription.id,
+            completionRequesterSessionKey: "agent:main:review",
+          }),
+        ],
       });
       reopenedStores.close();
     } finally {
@@ -494,6 +500,63 @@ describe("WorkboardStore", () => {
         metadata: { lifecycleStatusSourceUpdatedAt: 3000 },
       });
       expect(repeated.metadata?.notifications).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not lifecycle-complete running cards that created child work", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000);
+      const store = new WorkboardStore(createMemoryStore(), {
+        subscriptions: createMemoryStore<PersistedWorkboardNotificationSubscription>(),
+      });
+      const execution = {
+        id: "exec-parent",
+        kind: "agent-session" as const,
+        engine: "codex" as const,
+        mode: "autonomous" as const,
+        status: "running" as const,
+        model: "openai/gpt-5.5",
+        sessionKey: "agent:main:dashboard:parent",
+        runId: "run-parent",
+        startedAt: 500,
+        updatedAt: 500,
+      };
+      const parent = await store.create({
+        title: "Parent worker",
+        boardId: "ops",
+        status: "running",
+        sessionKey: execution.sessionKey,
+        runId: execution.runId,
+        execution,
+      });
+      await store.subscribeNotifications({
+        boardId: "ops",
+        cardId: parent.id,
+        target: "session:operator",
+        eventKinds: ["completed"],
+      });
+      await store.create({
+        title: "Child worker",
+        boardId: "ops",
+        status: "running",
+        createdByCardId: parent.id,
+      });
+
+      vi.setSystemTime(2000);
+      const lifecycleReview = await store.update(parent.id, {
+        status: "review",
+        execution: { ...execution, status: "review", updatedAt: 2000 },
+        metadata: { lifecycleStatusSourceUpdatedAt: 2000 },
+      });
+
+      expect(lifecycleReview).toEqual(parent);
+      expect(lifecycleReview.status).toBe("running");
+      expect(lifecycleReview.execution?.status).toBe("running");
+      expect(lifecycleReview.metadata?.lifecycleStatusSourceUpdatedAt).toBeUndefined();
+      expect(lifecycleReview.metadata?.notifications).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }

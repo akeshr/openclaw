@@ -251,6 +251,9 @@ function resolveRequestedFallbackModelRef(params: {
 function createSyntheticOperatorClient(params?: {
   allowModelOverride?: boolean;
   agentRunTracking?: "plugin_subagent";
+  pluginSubagentExpectsCompletionMessage?: boolean;
+  pluginSubagentCompletionRequesterSessionKey?: string;
+  pluginSubagentCompletionRequesterDisplayKey?: string;
   pluginRuntimeOwnerId?: string;
   scopes?: string[];
 }): GatewayRequestOptions["client"] {
@@ -274,6 +277,21 @@ function createSyntheticOperatorClient(params?: {
     internal: {
       allowModelOverride: params?.allowModelOverride === true,
       ...(params?.agentRunTracking ? { agentRunTracking: params.agentRunTracking } : {}),
+      ...(params?.pluginSubagentExpectsCompletionMessage === true
+        ? { pluginSubagentExpectsCompletionMessage: true }
+        : {}),
+      ...(params?.pluginSubagentCompletionRequesterSessionKey
+        ? {
+            pluginSubagentCompletionRequesterSessionKey:
+              params.pluginSubagentCompletionRequesterSessionKey,
+          }
+        : {}),
+      ...(params?.pluginSubagentCompletionRequesterDisplayKey
+        ? {
+            pluginSubagentCompletionRequesterDisplayKey:
+              params.pluginSubagentCompletionRequesterDisplayKey,
+          }
+        : {}),
       ...(params?.scopes?.includes(APPROVALS_SCOPE) ? { approvalRuntime: true } : {}),
       ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
     },
@@ -311,6 +329,9 @@ type DispatchGatewayMethodInProcessOptions = {
   disableSyntheticClient?: boolean;
   expectFinal?: boolean;
   forceSyntheticClient?: boolean;
+  pluginSubagentExpectsCompletionMessage?: boolean;
+  pluginSubagentCompletionRequesterSessionKey?: string;
+  pluginSubagentCompletionRequesterDisplayKey?: string;
   pluginRuntimeOwnerId?: string;
   requireScopedClient?: boolean;
   syntheticScopes?: string[];
@@ -416,14 +437,38 @@ export async function dispatchGatewayMethodInProcessRaw(
   const syntheticClient = createSyntheticOperatorClient({
     allowModelOverride: options?.allowSyntheticModelOverride === true,
     agentRunTracking: options?.agentRunTracking,
+    pluginSubagentExpectsCompletionMessage: options?.pluginSubagentExpectsCompletionMessage,
+    pluginSubagentCompletionRequesterSessionKey:
+      options?.pluginSubagentCompletionRequesterSessionKey,
+    pluginSubagentCompletionRequesterDisplayKey:
+      options?.pluginSubagentCompletionRequesterDisplayKey,
     ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
     scopes: options?.syntheticScopes,
   });
   const scopedClient = mergeGatewayClientInternal(
     scope?.client,
-    pluginRuntimeOwnerId || options?.agentRunTracking
+    pluginRuntimeOwnerId ||
+      options?.agentRunTracking ||
+      options?.pluginSubagentExpectsCompletionMessage === true ||
+      options?.pluginSubagentCompletionRequesterSessionKey ||
+      options?.pluginSubagentCompletionRequesterDisplayKey
       ? {
           ...(options?.agentRunTracking ? { agentRunTracking: options.agentRunTracking } : {}),
+          ...(options?.pluginSubagentExpectsCompletionMessage === true
+            ? { pluginSubagentExpectsCompletionMessage: true }
+            : {}),
+          ...(options?.pluginSubagentCompletionRequesterSessionKey
+            ? {
+                pluginSubagentCompletionRequesterSessionKey:
+                  options.pluginSubagentCompletionRequesterSessionKey,
+              }
+            : {}),
+          ...(options?.pluginSubagentCompletionRequesterDisplayKey
+            ? {
+                pluginSubagentCompletionRequesterDisplayKey:
+                  options.pluginSubagentCompletionRequesterDisplayKey,
+              }
+            : {}),
           ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
         }
       : undefined,
@@ -600,6 +645,13 @@ export function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
         {
           allowSyntheticModelOverride,
           agentRunTracking: "plugin_subagent",
+          pluginSubagentExpectsCompletionMessage: params.expectsCompletionMessage === true,
+          ...(params.completionRequesterSessionKey
+            ? { pluginSubagentCompletionRequesterSessionKey: params.completionRequesterSessionKey }
+            : {}),
+          ...(params.completionRequesterDisplayKey
+            ? { pluginSubagentCompletionRequesterDisplayKey: params.completionRequesterDisplayKey }
+            : {}),
           ...(pluginId ? { pluginRuntimeOwnerId: pluginId } : {}),
         },
       );

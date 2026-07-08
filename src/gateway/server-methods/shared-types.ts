@@ -48,6 +48,9 @@ export type GatewayClient = {
     approvalRuntime?: boolean;
     pluginRuntimeOwnerId?: string;
     agentRunTracking?: "plugin_subagent";
+    pluginSubagentExpectsCompletionMessage?: boolean;
+    pluginSubagentCompletionRequesterSessionKey?: string;
+    pluginSubagentCompletionRequesterDisplayKey?: string;
   };
 };
 

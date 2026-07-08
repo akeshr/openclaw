@@ -3379,6 +3379,83 @@ describe("gateway agent handler", () => {
     });
   });
 
+  it("registers plugin subagent completion routing when explicitly requested", async () => {
+    await withTempDir({ prefix: "openclaw-gateway-plugin-subagent-completion-" }, async (root) => {
+      useTestStateDir(root);
+      resetSubagentRegistryForTests({ persist: false });
+      const runId = "plugin-subagent-completion-run";
+      const childSessionKey = "agent:axiom:subagent:workboard-child";
+      const requesterSessionKey = "agent:jarvis:subagent:workboard-root";
+      const cfg = {
+        session: { mainKey: "main", scope: "per-sender" },
+        agents: { list: [{ id: "jarvis", default: true }, { id: "axiom" }] },
+      };
+      mocks.listAgentIds.mockReturnValue(["jarvis", "axiom"]);
+      mocks.loadConfigReturn = cfg;
+      mocks.loadSessionEntry.mockReturnValue({
+        cfg,
+        storePath: "/tmp/sessions.json",
+        entry: {
+          sessionId: "plugin-subagent-completion-session",
+          updatedAt: Date.now(),
+        },
+        canonicalKey: childSessionKey,
+      });
+      mocks.updateSessionStore.mockImplementation(async (_path, updater) => {
+        const store: Record<string, unknown> = {
+          [childSessionKey]: {
+            sessionId: "plugin-subagent-completion-session",
+            updatedAt: Date.now(),
+          },
+        };
+        return await updater(store);
+      });
+      mocks.agentCommand.mockResolvedValue({
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 100 },
+      });
+      const context = makeContext();
+      const baseClient = requireValue(backendGatewayClient(), "expected backend client");
+      const pluginClient: AgentHandlerArgs["client"] = {
+        connect: baseClient.connect,
+        internal: {
+          ...baseClient.internal,
+          agentRunTracking: "plugin_subagent",
+          pluginRuntimeOwnerId: "workboard",
+          pluginSubagentExpectsCompletionMessage: true,
+          pluginSubagentCompletionRequesterSessionKey: requesterSessionKey,
+          pluginSubagentCompletionRequesterDisplayKey: "parent:root-card",
+        },
+      };
+
+      await invokeAgent(
+        {
+          message: "workboard child task",
+          sessionKey: childSessionKey,
+          idempotencyKey: runId,
+        },
+        {
+          context,
+          reqId: runId,
+          client: pluginClient,
+        },
+      );
+
+      await waitForAssertion(() => {
+        const record = requireValue(
+          getSubagentRunByChildSessionKey(childSessionKey),
+          "expected plugin subagent registry record",
+        );
+        expect(record.runId).toBe(runId);
+        expect(record.controllerSessionKey).toBe("agent:axiom:main");
+        expect(record.requesterSessionKey).toBe(requesterSessionKey);
+        expect(record.requesterDisplayKey).toBe("parent:root-card");
+        expect(record.expectsCompletionMessage).toBe(true);
+        expect(record.label).toBe("plugin:workboard");
+      });
+    });
+  });
+
   it("keeps plugin SDK subagent runs best-effort when registry persistence fails", async () => {
     await withTempDir(
       { prefix: "openclaw-gateway-plugin-subagent-registry-fail-" },

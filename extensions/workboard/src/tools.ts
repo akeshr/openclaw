@@ -871,6 +871,12 @@ export function createWorkboardTools(params: {
           sessionKey: Type.Optional(Type.String({ description: "Session key." })),
           runId: Type.Optional(Type.String({ description: "Run id." })),
           target: Type.Optional(Type.String({ description: "Human-readable target." })),
+          completionRequesterSessionKey: Type.Optional(
+            Type.String({
+              description:
+                "Optional session key to receive native subagent completion delivery for matching Workboard worker runs.",
+            }),
+          ),
           eventKinds: Type.Optional(
             Type.Array(Type.String(), { description: "completed, failed, stale." }),
           ),

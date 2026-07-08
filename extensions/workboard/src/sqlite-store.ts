@@ -342,6 +342,7 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
       session_key TEXT,
       run_id TEXT,
       target TEXT,
+      completion_requester_session_key TEXT,
       event_kinds_json TEXT,
       last_event_at INTEGER,
       last_event_id TEXT,
@@ -356,6 +357,12 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     "workboard_cards",
     "lifecycle_status_source_updated_at",
     "lifecycle_status_source_updated_at INTEGER",
+  );
+  ensureColumn(
+    db,
+    "workboard_notification_subscriptions",
+    "completion_requester_session_key",
+    "completion_requester_session_key TEXT",
   );
   db.prepare(
     "INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at) VALUES (?, ?)",
@@ -1227,16 +1234,17 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
       .prepare(
         `
           INSERT INTO workboard_notification_subscriptions (
-            id, board_id, card_id, session_key, run_id, target, event_kinds_json,
-            last_event_at, last_event_id, last_event_sequence, delivered_event_ids_json,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, board_id, card_id, session_key, run_id, target, completion_requester_session_key,
+            event_kinds_json, last_event_at, last_event_id, last_event_sequence,
+            delivered_event_ids_json, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             board_id = excluded.board_id,
             card_id = excluded.card_id,
             session_key = excluded.session_key,
             run_id = excluded.run_id,
             target = excluded.target,
+            completion_requester_session_key = excluded.completion_requester_session_key,
             event_kinds_json = excluded.event_kinds_json,
             last_event_at = excluded.last_event_at,
             last_event_id = excluded.last_event_id,
@@ -1253,6 +1261,7 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
         bindNull(subscription.sessionKey),
         bindNull(subscription.runId),
         bindNull(subscription.target),
+        bindNull(subscription.completionRequesterSessionKey),
         jsonValue(subscription.eventKinds),
         bindNull(subscription.lastEventAt),
         bindNull(subscription.lastEventId),
@@ -1285,6 +1294,9 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
         ...(stringValue(row, "session_key") ? { sessionKey: stringValue(row, "session_key") } : {}),
         ...(stringValue(row, "run_id") ? { runId: stringValue(row, "run_id") } : {}),
         ...(stringValue(row, "target") ? { target: stringValue(row, "target") } : {}),
+        ...(stringValue(row, "completion_requester_session_key")
+          ? { completionRequesterSessionKey: stringValue(row, "completion_requester_session_key") }
+          : {}),
         ...(eventKinds ? { eventKinds } : {}),
         ...(numberValue(row, "last_event_at") !== undefined
           ? { lastEventAt: numberValue(row, "last_event_at") }
