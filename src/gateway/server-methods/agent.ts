@@ -727,6 +727,9 @@ async function registerPluginSubagentRunFromGateway(params: {
   childSessionKey: string;
   task: string;
   requesterOrigin?: DeliveryContext;
+  requesterSessionKey?: string;
+  requesterDisplayKey?: string;
+  expectsCompletionMessage?: boolean;
   pluginId?: string;
 }): Promise<void> {
   const childSessionKey = params.childSessionKey.trim();
@@ -737,18 +740,23 @@ async function registerPluginSubagentRunFromGateway(params: {
     cfg: params.cfg,
     agentId: resolveAgentIdFromSessionKey(childSessionKey),
   });
+  const requesterSessionKey =
+    normalizeOptionalString(params.requesterSessionKey) ?? ownerSessionKey;
+  const requesterDisplayKey =
+    normalizeOptionalString(params.requesterDisplayKey) ??
+    (requesterSessionKey === ownerSessionKey ? "main" : "requester");
   const { registerSubagentRun } = await import("../../agents/subagent-registry.js");
   registerSubagentRun({
     runId: params.runId,
     childSessionKey,
     controllerSessionKey: ownerSessionKey,
-    requesterSessionKey: ownerSessionKey,
+    requesterSessionKey,
     requesterOrigin: params.requesterOrigin,
-    requesterDisplayKey: "main",
+    requesterDisplayKey,
     task: params.task,
     cleanup: "keep",
     ...(params.pluginId ? { label: `plugin:${params.pluginId}` } : {}),
-    expectsCompletionMessage: false,
+    expectsCompletionMessage: params.expectsCompletionMessage === true,
     spawnMode: "run",
   });
 }
@@ -3159,6 +3167,14 @@ export const agentHandlers: GatewayRequestHandlers = {
               accountId: resolvedAccountId,
               threadId: resolvedThreadId,
             }),
+            requesterSessionKey: normalizeOptionalString(
+              client?.internal?.pluginSubagentCompletionRequesterSessionKey,
+            ),
+            requesterDisplayKey: normalizeOptionalString(
+              client?.internal?.pluginSubagentCompletionRequesterDisplayKey,
+            ),
+            expectsCompletionMessage:
+              client?.internal?.pluginSubagentExpectsCompletionMessage === true,
             pluginId: normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId),
           });
         } catch (err) {

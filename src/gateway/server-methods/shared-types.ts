@@ -53,6 +53,9 @@ export type GatewayClient = {
     agentRuntimeIdentity?: AgentRuntimeIdentity;
     pluginRuntimeOwnerId?: string;
     agentRunTracking?: "plugin_subagent";
+    pluginSubagentExpectsCompletionMessage?: boolean;
+    pluginSubagentCompletionRequesterSessionKey?: string;
+    pluginSubagentCompletionRequesterDisplayKey?: string;
   };
 };
 

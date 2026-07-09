@@ -17,6 +17,9 @@ export type SubagentRunParams = {
   lane?: string;
   lightContext?: boolean;
   deliver?: boolean;
+  expectsCompletionMessage?: boolean;
+  completionRequesterSessionKey?: string;
+  completionRequesterDisplayKey?: string;
   idempotencyKey?: string;
   cwd?: string;
 };

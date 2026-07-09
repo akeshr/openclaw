@@ -116,6 +116,34 @@ describe("createGatewaySubagentRuntime.run subagent_ended tracking (#59164)", ()
     expect(request.client?.internal?.pluginRuntimeOwnerId).toBe("memory-core");
   });
 
+  test("passes plugin subagent completion routing through the tracked Gateway request", async () => {
+    const serverPlugins = await loadServerPlugins();
+    const runtime = serverPlugins.createGatewaySubagentRuntime();
+    serverPlugins.setFallbackGatewayContext(
+      createTestContext("plugin-sdk-subagent-completion", createTestCfg()),
+    );
+
+    await runtime.run({
+      sessionKey: "agent:worker:subagent:plugin-helper",
+      message: "complete this Workboard card",
+      deliver: false,
+      expectsCompletionMessage: true,
+      completionRequesterSessionKey: "agent:jarvis:subagent:workboard-root",
+      completionRequesterDisplayKey: "parent:root-card",
+    });
+
+    const request = lastGatewayRequest();
+    expect(request.req.method).toBe("agent");
+    expect(request.client?.internal?.agentRunTracking).toBe("plugin_subagent");
+    expect(request.client?.internal?.pluginSubagentExpectsCompletionMessage).toBe(true);
+    expect(request.client?.internal?.pluginSubagentCompletionRequesterSessionKey).toBe(
+      "agent:jarvis:subagent:workboard-root",
+    );
+    expect(request.client?.internal?.pluginSubagentCompletionRequesterDisplayKey).toBe(
+      "parent:root-card",
+    );
+  });
+
   test("does not dispatch when no runtime config is available", async () => {
     const serverPlugins = await loadServerPlugins();
     const runtime = serverPlugins.createGatewaySubagentRuntime();

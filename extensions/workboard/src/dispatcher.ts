@@ -50,6 +50,44 @@ function cardBoardId(card: WorkboardCard): string {
   return card.metadata?.automation?.boardId ?? "default";
 }
 
+function cardSessionKey(card: WorkboardCard): string | undefined {
+  return card.sessionKey ?? card.execution?.sessionKey;
+}
+
+function cardParentIds(card: WorkboardCard): string[] {
+  const parentIds =
+    card.metadata?.links
+      ?.filter((link) => link.type === "parent" && link.targetCardId)
+      .map((link) => link.targetCardId!) ?? [];
+  const createdByCardId = card.metadata?.automation?.createdByCardId;
+  return [...(createdByCardId ? [createdByCardId] : []), ...parentIds].filter(
+    (id, index, ids) => ids.indexOf(id) === index,
+  );
+}
+
+async function resolveCompletionRequester(params: {
+  store: WorkboardStore;
+  card: WorkboardCard;
+}): Promise<{ sessionKey: string; displayKey: string } | undefined> {
+  for (const parentId of cardParentIds(params.card)) {
+    const parent = await params.store.get(parentId);
+    const parentSessionKey = parent ? cardSessionKey(parent) : undefined;
+    if (parentSessionKey) {
+      return { sessionKey: parentSessionKey, displayKey: `parent:${parentId}` };
+    }
+  }
+  const subscriptions = await params.store.listNotificationSubscriptions({
+    boardId: cardBoardId(params.card),
+    cardId: params.card.id,
+  });
+  const explicitRequester = subscriptions.subscriptions.find(
+    (subscription) => subscription.completionRequesterSessionKey,
+  )?.completionRequesterSessionKey;
+  return explicitRequester
+    ? { sessionKey: explicitRequester, displayKey: `workboard:${params.card.id}` }
+    : undefined;
+}
+
 function sanitizeSessionSegment(value: string | undefined, fallback: string): string {
   const sanitized = (value ?? fallback)
     .trim()
@@ -254,6 +292,10 @@ export async function dispatchAndStartWorkboardCards(params: {
       });
       token = claimed.token;
       const context = await params.store.buildWorkerContext(card.id);
+      const completionRequester = await resolveCompletionRequester({
+        store: params.store,
+        card: claimed.card,
+      });
       const materialized = await materializeWorkspace({
         card: claimed.card,
         worktrees: params.worktrees,
@@ -277,6 +319,13 @@ export async function dispatchAndStartWorkboardCards(params: {
         idempotencyKey: `workboard:${card.id}:${claimed.card.updatedAt}`,
         lightContext: true,
         deliver: false,
+        ...(completionRequester
+          ? {
+              expectsCompletionMessage: true,
+              completionRequesterSessionKey: completionRequester.sessionKey,
+              completionRequesterDisplayKey: completionRequester.displayKey,
+            }
+          : {}),
         ...(materialized.cwd ? { cwd: materialized.cwd } : {}),
       });
       runStarted = true;
