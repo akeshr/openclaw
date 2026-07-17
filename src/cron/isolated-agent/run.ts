@@ -1489,11 +1489,26 @@ export async function runCronIsolatedAgentTurn(params: {
   const abortReason = () =>
     resolveCronAbortReasonText(abortSignal?.reason) ?? "cron: job execution timed out";
   const isFastTestEnv = process.env.OPENCLAW_TEST_FAST === "1";
-  const prepared = await prepareCronRunContext({
-    input: { ...params, abortSignal },
-    isFastTestEnv,
-    onLifecycleInterrupt: () => lifecycleAbortController.abort(createAgentRunRestartAbortError()),
-  });
+  let prepared: CronPreparationResult;
+  try {
+    prepared = await prepareCronRunContext({
+      input: { ...params, abortSignal },
+      isFastTestEnv,
+      onLifecycleInterrupt: () => lifecycleAbortController.abort(createAgentRunRestartAbortError()),
+    });
+  } catch (error) {
+    if (!(error instanceof CronSessionLifecycleClaimError)) {
+      throw error;
+    }
+    const reason = "cron: session is busy; another run claimed it before execution started";
+    return {
+      status: "skipped",
+      error: reason,
+      diagnostics: createCronRunDiagnosticsFromError("cron-setup", reason, {
+        severity: "warn",
+      }),
+    };
+  }
   if (!prepared.ok) {
     return prepared.result;
   }

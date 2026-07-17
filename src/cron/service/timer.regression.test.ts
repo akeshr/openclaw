@@ -672,6 +672,43 @@ describe("cron service timer regressions", () => {
     expect(cronJob.state.nextRunAtMs).toBe(scheduledAt + everyTwelveHoursMs);
   });
 
+  it("does not apply execution-error backoff to a skipped recurring run", () => {
+    const scheduledAt = Date.parse("2026-07-17T12:00:00.000Z");
+    const everyHourMs = 60 * 60 * 1_000;
+    const info = vi.fn();
+    const cronJob = createIsolatedRegressionJob({
+      id: "recurring-session-busy",
+      name: "recurring session busy",
+      scheduledAt,
+      schedule: { kind: "every", everyMs: everyHourMs, anchorMs: scheduledAt },
+      payload: { kind: "agentTurn", message: "closure report" },
+      state: {
+        nextRunAtMs: scheduledAt,
+        consecutiveErrors: 2,
+      },
+    });
+    const state = createRunningCronServiceState({
+      storePath: "/tmp/cron-recurring-session-busy.json",
+      log: { ...noopLogger, info },
+      nowMs: () => scheduledAt,
+      jobs: [cronJob],
+      cronConfig: { retry: { backoffMs: [24 * everyHourMs] } },
+    });
+
+    applyJobResult(state, cronJob, {
+      status: "skipped",
+      error: "cron: session is busy; another run claimed it before execution started",
+      startedAt: scheduledAt,
+      endedAt: scheduledAt,
+    });
+
+    expect(cronJob.state.lastStatus).toBe("skipped");
+    expect(cronJob.state.consecutiveErrors).toBe(0);
+    expect(cronJob.state.consecutiveSkipped).toBe(1);
+    expect(cronJob.state.nextRunAtMs).toBe(scheduledAt + everyHourMs);
+    expect(info).not.toHaveBeenCalledWith(expect.anything(), "cron: applying error backoff");
+  });
+
   it("prevents spin loop when cron job completes within the scheduled second (#17821)", async () => {
     const store = timerRegressionFixtures.makeStorePath();
     const scheduledAt = Date.parse("2026-02-15T13:00:00.000Z");

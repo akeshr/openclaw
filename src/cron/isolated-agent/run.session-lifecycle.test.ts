@@ -7,6 +7,7 @@ import {
 } from "../../sessions/session-lifecycle-admission.js";
 import { makeIsolatedAgentJobFixture, makeIsolatedAgentParamsFixture } from "./job-fixtures.js";
 import {
+  clearFastTestEnv,
   dispatchCronDeliveryMock,
   loadRunCronIsolatedAgentTurn,
   loadSessionEntryMock,
@@ -17,7 +18,9 @@ import {
   preflightCronModelProviderMock,
   resetRunCronIsolatedAgentTurnHarness,
   resolveCronSessionMock,
+  restoreFastTestEnv,
   runEmbeddedAgentMock,
+  updateSessionStoreMock,
 } from "./run.test-harness.js";
 
 const runCronIsolatedAgentTurn = await loadRunCronIsolatedAgentTurn();
@@ -76,6 +79,45 @@ describe("runCronIsolatedAgentTurn session lifecycle", () => {
       `Session "${sessionKey}" changed while starting work. Retry.`,
     );
     expect(runEmbeddedAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("skips when another run claims the exact session before runner entry", async () => {
+    const previousFastTestEnv = clearFastTestEnv();
+    const sessionKey = "agent:main:main";
+    const initialSessionEntry = makeCronSessionEntry({
+      lifecycleRevision: "initial-revision",
+      sessionId: "shared-session",
+    });
+    resolveCronSessionMock.mockReturnValue(
+      makeCronSession({
+        storePath: "/tmp/cron-lifecycle-claim.json",
+        initialSessionEntry,
+        isNewSession: false,
+        lifecycleRevision: "claiming-revision",
+        sessionEntry: { ...initialSessionEntry, lifecycleRevision: "claiming-revision" },
+      }),
+    );
+    loadSessionEntryMock.mockReturnValue({ ...initialSessionEntry });
+    updateSessionStoreMock.mockImplementationOnce(async (_storePath, update) => {
+      update({
+        [sessionKey]: {
+          ...initialSessionEntry,
+          lifecycleRevision: "newer-revision",
+        },
+      });
+    });
+
+    try {
+      await expect(runCronIsolatedAgentTurn(makePersistentCronParams(sessionKey))).resolves.toEqual(
+        expect.objectContaining({
+          status: "skipped",
+          error: expect.stringContaining("session is busy"),
+        }),
+      );
+      expect(runEmbeddedAgentMock).not.toHaveBeenCalled();
+    } finally {
+      restoreFastTestEnv(previousFastTestEnv);
+    }
   });
 
   it("allows a rename and unpin during async setup", async () => {
